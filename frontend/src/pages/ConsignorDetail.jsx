@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/tabs";
 import StatusPill from "@/components/StatusPill";
 import IntakeDialog from "@/components/IntakeDialog";
-import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ConsignorDetail() {
@@ -224,8 +224,38 @@ export default function ConsignorDetail() {
                       witnessed by {data.agreement.signed_by_staff}
                     </div>
                   </div>
-                  <div className="ee-status-sold inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.12em]">
-                    <FileText size={12} /> On file
+                  <div className="flex items-center gap-2">
+                    <Button
+                      data-testid="download-agreement-pdf"
+                      variant="outline"
+                      className="ee-btn-label"
+                      onClick={async () => {
+                        try {
+                          const res = await api.get(
+                            `/consignors/${id}/agreement.pdf`,
+                            { responseType: "blob" }
+                          );
+                          const url = window.URL.createObjectURL(res.data);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `${id}-consignment-agreement.pdf`;
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          toast.success("Agreement downloaded");
+                        } catch (e) {
+                          toast.error(
+                            formatApiError(e.response?.data?.detail) ||
+                              e.message
+                          );
+                        }
+                      }}
+                    >
+                      <Download size={14} className="md:mr-1" />
+                      <span className="hidden md:inline">Download PDF</span>
+                    </Button>
+                    <div className="ee-status-sold inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.12em]">
+                      <FileText size={12} /> On file
+                    </div>
                   </div>
                 </div>
                 <div className="border border-[var(--ee-border)] rounded p-3 bg-neutral-50 max-h-56 overflow-y-auto text-[11px] leading-relaxed text-neutral-700 whitespace-pre-wrap font-light">

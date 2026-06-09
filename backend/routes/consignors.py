@@ -139,3 +139,27 @@ async def save_agreement(
         {"consignor_id": consignor_id}, {"$set": {"agreement": doc}}
     )
     return {"ok": True, "agreement": doc}
+
+
+@router.get("/{consignor_id}/agreement.pdf")
+async def download_agreement_pdf(
+    consignor_id: str, request: Request, _u: dict = Depends(get_current_user)
+):
+    from fastapi.responses import Response
+    from agreement_pdf import render_agreement_pdf
+
+    db = request.app.state.db
+    c = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Consignor not found")
+    if not c.get("agreement"):
+        raise HTTPException(status_code=404, detail="No signed agreement on file")
+    pdf_bytes = render_agreement_pdf(c)
+    filename = f"{consignor_id}-consignment-agreement.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
