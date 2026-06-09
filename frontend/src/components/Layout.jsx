@@ -14,7 +14,7 @@ export default function Layout() {
     );
   if (!user) return <Navigate to="/login" replace />;
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex w-full">
       <Sidebar />
       <main className="flex-1 min-w-0 pb-20 md:pb-0">
         <Outlet />

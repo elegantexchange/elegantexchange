@@ -31,13 +31,13 @@ export default function Sidebar() {
   return (
     <aside
       data-testid="sidebar"
-      className="hidden md:flex flex-col w-[260px] shrink-0 border-r border-[var(--ee-border)] bg-white"
+      className="hidden md:flex flex-col w-[260px] shrink-0 border-r border-[var(--ee-border)] bg-white h-screen sticky top-0 overflow-y-auto"
     >
-      <div className="px-6 pt-7 pb-5">
+      <div className="px-5 pt-6 pb-4 bg-transparent">
         <img
           src={LOGO_URL}
           alt={STORE.name}
-          className="w-full max-w-[180px] h-16 mx-auto object-cover object-center"
+          className="w-full max-w-[220px] h-24 mx-auto object-cover object-center bg-transparent"
         />
       </div>
       <nav className="flex-1 px-3 py-2 space-y-0.5">
@@ -61,23 +61,13 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="border-t border-[var(--ee-border)] p-4">
-        <div className="text-[11px] text-neutral-500 uppercase tracking-wider">
-          Signed in as
-        </div>
-        <div data-testid="user-name" className="text-sm font-semibold mt-0.5">
-          {user?.name}
-        </div>
-        <div className="text-xs text-neutral-500">{user?.email}</div>
-        <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] mt-1 font-semibold">
-          {user?.role}
-        </div>
         <button
           data-testid="logout-btn"
           onClick={async () => {
             await logout();
             nav("/login");
           }}
-          className="mt-3 w-full text-[11px] font-semibold uppercase tracking-[0.08em] border border-[var(--ee-border)] rounded px-3 py-2 hover:bg-neutral-50 inline-flex items-center justify-center gap-2"
+          className="w-full text-[11px] font-semibold uppercase tracking-[0.08em] border border-[var(--ee-border)] rounded px-3 py-2 hover:bg-neutral-50 inline-flex items-center justify-center gap-2"
         >
           <LogOut size={13} /> Sign out
         </button>
