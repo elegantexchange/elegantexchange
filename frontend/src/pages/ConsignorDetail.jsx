@@ -49,7 +49,8 @@ export default function ConsignorDetail() {
             className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
             onClick={() => setIntakeOpen(true)}
           >
-            <Plus size={14} className="mr-1" /> New Intake
+            <Plus size={14} className="md:mr-1" />
+            <span className="hidden md:inline">New Intake</span>
           </Button>
         }
       />
@@ -207,13 +208,48 @@ export default function ConsignorDetail() {
           )}
         </TabsContent>
         <TabsContent value="documents" className="mt-4">
-          <div className="bg-white border border-[var(--ee-border)] rounded-md p-6 text-sm">
-            <div className="flex items-center gap-2 text-neutral-500">
-              <FileText size={16} />
-              Signed agreement and intake records will appear here once the seller
-              uploads them in V2. For now, intake records are linked to each
-              item ID above.
-            </div>
+          <div className="bg-white border border-[var(--ee-border)] rounded-md p-6">
+            {data.agreement ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold">
+                      Consignment Agreement
+                    </div>
+                    <div className="text-sm font-semibold mt-1">
+                      Signed by {data.agreement.signed_name}
+                    </div>
+                    <div className="text-xs text-neutral-500 font-light">
+                      {fmtDate(data.agreement.signed_at)} ·
+                      witnessed by {data.agreement.signed_by_staff}
+                    </div>
+                  </div>
+                  <div className="ee-status-sold inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.12em]">
+                    <FileText size={12} /> On file
+                  </div>
+                </div>
+                <div className="border border-[var(--ee-border)] rounded p-3 bg-neutral-50 max-h-56 overflow-y-auto text-[11px] leading-relaxed text-neutral-700 whitespace-pre-wrap font-light">
+                  {data.agreement.agreement_text}
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold mb-1">
+                    Signature
+                  </div>
+                  <img
+                    src={data.agreement.signature_data_url}
+                    alt="Signature"
+                    data-testid="agreement-signature-img"
+                    className="border border-[var(--ee-border)] rounded bg-white max-h-40"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-neutral-500 text-sm">
+                <FileText size={16} />
+                No signed agreement on file. Start a new intake from this profile
+                to capture a signature.
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

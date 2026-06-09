@@ -75,8 +75,8 @@ export default function Sales() {
                 disabled={syncing}
                 onClick={sync}
               >
-                <RefreshCw size={14} className={`mr-1 ${syncing ? "animate-spin" : ""}`} />
-                Sync Square
+                <RefreshCw size={14} className={`md:mr-1 ${syncing ? "animate-spin" : ""}`} />
+                <span className="hidden md:inline">Sync Square</span>
               </Button>
             )}
             <Button
@@ -84,7 +84,8 @@ export default function Sales() {
               className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
               onClick={() => setOpen(true)}
             >
-              <Plus size={14} className="mr-1" /> Log Sale
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden md:inline">Log Sale</span>
             </Button>
           </>
         }

@@ -55,7 +55,8 @@ export default function Dashboard() {
               className="ee-btn-label"
               onClick={() => nav("/consignors?intake=1")}
             >
-              <Plus size={14} className="mr-1" /> New Intake
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden md:inline">New Intake</span>
             </Button>
             <Button
               data-testid="quick-log-sale"
@@ -63,14 +64,16 @@ export default function Dashboard() {
               className="ee-btn-label"
               onClick={() => nav("/sales?new=1")}
             >
-              <Receipt size={14} className="mr-1" /> Log Sale
+              <Receipt size={14} className="md:mr-1" />
+              <span className="hidden md:inline">Log Sale</span>
             </Button>
             <Button
               data-testid="quick-add-consignor"
               className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
               onClick={() => nav("/consignors?new=1")}
             >
-              <Users size={14} className="mr-1" /> Add Consignor
+              <Users size={14} className="md:mr-1" />
+              <span className="hidden md:inline">Add Consignor</span>
             </Button>
           </>
         }

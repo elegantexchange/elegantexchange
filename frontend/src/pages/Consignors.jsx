@@ -64,14 +64,16 @@ export default function Consignors() {
               className="ee-btn-label"
               onClick={() => setOpenIntake(true)}
             >
-              <Plus size={14} className="mr-1" /> New Intake
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden md:inline">New Intake</span>
             </Button>
             <Button
               data-testid="open-new-consignor-btn"
               className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
               onClick={() => setOpenNew(true)}
             >
-              <Plus size={14} className="mr-1" /> Add Consignor
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden md:inline">Add Consignor</span>
             </Button>
           </>
         }

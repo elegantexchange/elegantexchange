@@ -111,3 +111,31 @@ async def delete_consignor(
         )
     await db.consignors.delete_one({"consignor_id": consignor_id})
     return {"ok": True}
+
+
+@router.post("/{consignor_id}/agreement")
+async def save_agreement(
+    consignor_id: str,
+    body: dict,
+    request: Request,
+    _u: dict = Depends(get_current_user),
+):
+    """Store the signed agreement (signature data URL + timestamp + agreement text snapshot)."""
+    db = request.app.state.db
+    c = await db.consignors.find_one({"consignor_id": consignor_id})
+    if not c:
+        raise HTTPException(status_code=404, detail="Consignor not found")
+    sig = body.get("signature_data_url")
+    if not sig or not sig.startswith("data:image/"):
+        raise HTTPException(status_code=400, detail="Missing or invalid signature")
+    doc = {
+        "signature_data_url": sig,
+        "agreement_text": body.get("agreement_text", ""),
+        "signed_name": body.get("signed_name", c["full_name"]),
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+        "signed_by_staff": _u.get("email", ""),
+    }
+    await db.consignors.update_one(
+        {"consignor_id": consignor_id}, {"$set": {"agreement": doc}}
+    )
+    return {"ok": True, "agreement": doc}

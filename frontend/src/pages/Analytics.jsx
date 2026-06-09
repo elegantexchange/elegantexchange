@@ -90,7 +90,8 @@ export default function Analytics() {
             className="ee-btn-label"
             onClick={exportCsv}
           >
-            <Download size={14} className="mr-1" /> Export CSV
+            <Download size={14} className="md:mr-1" />
+            <span className="hidden md:inline">Export CSV</span>
           </Button>
         }
       />
