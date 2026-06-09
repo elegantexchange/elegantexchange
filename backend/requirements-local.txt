@@ -1,4 +1,4 @@
-# Production deps (no Emergent platform packages).
+# Minimal deps to run Elegant Exchange locally (no Emergent platform packages).
 fastapi==0.110.1
 uvicorn==0.25.0
 motor==3.3.1
@@ -11,3 +11,7 @@ email-validator==2.3.0
 httpx==0.28.1
 reportlab==4.5.1
 python-multipart==0.0.30
+
+# Optional: backend tests
+pytest==9.0.3
+requests==2.34.2
