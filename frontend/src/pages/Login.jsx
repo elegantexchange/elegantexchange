@@ -1,0 +1,131 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LOGO_URL, STORE } from "@/lib/brand";
+import { formatApiError } from "@/lib/api";
+import { Loader2 } from "lucide-react";
+
+export default function Login() {
+  const { login, user } = useAuth();
+  const nav = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  if (user) {
+    nav("/", { replace: true });
+    return null;
+  }
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await login(email, password);
+      nav("/", { replace: true });
+    } catch (e) {
+      setError(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Left brand panel */}
+      <div className="md:w-[44%] bg-white border-r border-[var(--ee-border)] flex items-center justify-center p-10">
+        <div className="max-w-sm">
+          <img src={LOGO_URL} alt={STORE.name} className="w-72 mx-auto" />
+          <div className="text-center mt-6 text-[11px] tracking-[0.28em] uppercase text-neutral-500">
+            Back of Haus
+          </div>
+          <p className="text-center mt-8 text-sm text-neutral-600 font-light leading-relaxed">
+            The internal operations portal for {STORE.name}. Track consignments,
+            log sales, and manage payouts — all without doing math.
+          </p>
+          <p className="text-center mt-6 text-xs text-neutral-400 font-light">
+            {STORE.address}
+          </p>
+        </div>
+      </div>
+      {/* Right form panel */}
+      <div className="flex-1 flex items-center justify-center p-8 bg-[var(--ee-bg)]">
+        <form
+          onSubmit={onSubmit}
+          className="w-full max-w-sm"
+          data-testid="login-form"
+        >
+          <div className="text-[10px] tracking-[0.22em] uppercase text-[var(--ee-magenta)] font-semibold">
+            Staff Sign In
+          </div>
+          <h1 className="ee-page-title text-3xl mt-1">Welcome back.</h1>
+          <p className="text-sm text-neutral-500 mt-1 font-light">
+            Use your staff credentials to continue.
+          </p>
+
+          <div className="mt-7 space-y-4">
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Email
+              </Label>
+              <Input
+                data-testid="login-email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@elegantexchange.co"
+                type="email"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Password
+              </Label>
+              <Input
+                data-testid="login-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                required
+                className="mt-1"
+              />
+            </div>
+            {error ? (
+              <div
+                data-testid="login-error"
+                className="text-sm rounded-md px-3 py-2"
+                style={{
+                  background: "var(--ee-error-bg)",
+                  color: "#8a1f1f",
+                }}
+              >
+                {error}
+              </div>
+            ) : null}
+            <Button
+              data-testid="login-submit"
+              type="submit"
+              disabled={loading}
+              className="w-full ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white py-5"
+            >
+              {loading ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                "Sign In"
+              )}
+            </Button>
+          </div>
+          <div className="text-[11px] text-neutral-400 mt-8 text-center font-light">
+            Staff-only portal · v1
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

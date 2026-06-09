@@ -1,0 +1,4 @@
+/* App-specific styles intentionally minimal — see index.css for brand tokens. */
+.App {
+    min-height: 100vh;
+}

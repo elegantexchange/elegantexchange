@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens — The Elegant Exchange */
+:root {
+    --ee-bg: #fcfcfc;
+    --ee-ink: #1a1a1a;
+    --ee-magenta: #8b1f6b;
+    --ee-magenta-soft: #f5e8f2;
+    --ee-border: #dddddd;
+    --ee-success-bg: #d6f0d6;
+    --ee-warning-bg: #fff8dc;
+    --ee-error-bg: #fad9d9;
+
+    --background: 0 0% 99%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 316 64% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 320 35% 93%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 320 35% 93%;
+    --accent-foreground: 316 64% 33%;
+    --destructive: 0 64% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 87%;
+    --input: 0 0% 87%;
+    --ring: 316 64% 33%;
+    --radius: 0.375rem;
+    --chart-1: 316 64% 33%;
+    --chart-2: 316 40% 60%;
+    --chart-3: 0 0% 30%;
+    --chart-4: 36 70% 55%;
+    --chart-5: 165 50% 40%;
+}
+
+body {
+    margin: 0;
+    background: var(--ee-bg);
+    color: var(--ee-ink);
+    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+}
+
+/* Typography helpers */
+.ee-table-header {
+    font-weight: 700;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ee-ink);
+}
+
+.ee-page-title {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ee-ink);
+}
+
+.ee-section-header {
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--ee-ink);
+}
+
+.ee-btn-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+}
+
+/* Alt row pink */
+.ee-row-alt:nth-child(even) {
+    background: #fbf3f7;
+}
+
+/* Magenta accent bar */
+.ee-active-tab {
+    box-shadow: inset 3px 0 0 var(--ee-magenta);
+    color: var(--ee-magenta);
+    background: var(--ee-magenta-soft);
+}
+
+/* Status pills */
+.ee-status-active {
+    background: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid var(--ee-border);
+}
+.ee-status-sold {
+    background: var(--ee-success-bg);
+    color: #1e5a1e;
+    border: 1px solid #bcd9bc;
+}
+.ee-status-donated {
+    background: var(--ee-warning-bg);
+    color: #7a5e00;
+    border: 1px solid #e8d99c;
+}
+.ee-status-returned,
+.ee-status-expired {
+    background: var(--ee-error-bg);
+    color: #8a1f1f;
+    border: 1px solid #e6b3b3;
+}
+
+/* Print styles for item tags */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #print-area,
+    #print-area * {
+        visibility: visible;
+    }
+    #print-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+    .no-print {
+        display: none !important;
+    }
+}
+
+.ee-tag {
+    border: 1.5px dashed #9b9b9b;
+    border-radius: 6px;
+    padding: 14px 12px 10px;
+    aspect-ratio: 3 / 4;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: white;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+.ee-tag-hole {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid #888;
+    background: white;
+}

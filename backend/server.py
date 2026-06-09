@@ -1,0 +1,83 @@
+"""The Elegant Exchange — Back of Haus · FastAPI server."""
+from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+import os
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from routes.auth_routes import router as auth_router
+from routes.consignors import router as consignors_router
+from routes.inventory import router as inventory_router
+from routes.sales import router as sales_router
+from routes.payouts import router as payouts_router
+from routes.analytics import router as analytics_router
+from routes.dashboard import router as dashboard_router
+from routes.square_routes import router as square_router
+from seed import seed_admin, seed_demo
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("elegant_exchange")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    db = client[os.environ["DB_NAME"]]
+    app.state.mongo_client = client
+    app.state.db = db
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.consignors.create_index("consignor_id", unique=True)
+        await db.inventory.create_index("item_id", unique=True)
+        await db.inventory.create_index("consignor_id")
+        await db.inventory.create_index("status")
+        await db.sales.create_index("item_id")
+        await db.sales.create_index("consignor_id")
+        await db.sales.create_index("sale_date")
+        await db.payouts.create_index("consignor_id")
+        await db.square_sync_log.create_index("transaction_id", unique=True)
+    except Exception as e:
+        logger.warning(f"Index setup warning: {e}")
+    await seed_admin(db)
+    await seed_demo(db)
+    logger.info("Startup complete")
+    yield
+    client.close()
+
+
+app = FastAPI(title="The Elegant Exchange · Back of Haus", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Routers
+for r in (
+    auth_router,
+    consignors_router,
+    inventory_router,
+    sales_router,
+    payouts_router,
+    analytics_router,
+    dashboard_router,
+    square_router,
+):
+    app.include_router(r)
+
+
+@app.get("/api")
+async def root():
+    return {"app": "The Elegant Exchange · Back of Haus", "ok": True}
