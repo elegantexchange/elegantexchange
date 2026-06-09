@@ -1,5 +1,4 @@
-export const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_11809342-e9cc-4988-9a2f-552b6902ae81/artifacts/h88kstum_Elegant%20Exchange%20Icon.png";
+export const LOGO_URL = "/logo.png";
 
 export const STORE = {
   name: "The Elegant Exchange",
