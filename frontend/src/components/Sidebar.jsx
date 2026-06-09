@@ -37,11 +37,8 @@ export default function Sidebar() {
         <img
           src={LOGO_URL}
           alt={STORE.name}
-          className="w-full max-w-[180px] mx-auto"
+          className="w-full max-w-[180px] h-16 mx-auto object-cover object-center"
         />
-        <div className="text-center text-[10px] tracking-[0.18em] uppercase text-neutral-500 mt-1">
-          Back of Haus
-        </div>
       </div>
       <nav className="flex-1 px-3 py-2 space-y-0.5">
         {items.map(({ to, label, icon: Icon, testid }) => (
