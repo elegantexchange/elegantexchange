@@ -41,22 +41,15 @@ export default function Login() {
         className="w-full max-w-sm"
         data-testid="login-form"
       >
-        <img
-          src={LOGO_URL}
-          alt={STORE.name}
-          className="w-64 mx-auto"
-        />
-
-        <div className="text-center mt-8">
-          <div className="text-[10px] tracking-[0.28em] uppercase text-[var(--ee-magenta)] font-semibold">
-            Team Sign In
-          </div>
-          <p className="text-sm text-neutral-500 mt-2 font-light">
-            Use your credentials to continue.
-          </p>
+        <div className="flex justify-center -mb-12">
+          <img
+            src={LOGO_URL}
+            alt={STORE.name}
+            className="w-56"
+          />
         </div>
 
-        <div className="mt-8 space-y-4">
+        <div className="space-y-4">
           <div>
             <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
               Email
@@ -108,6 +101,9 @@ export default function Login() {
               "Sign In"
             )}
           </Button>
+        </div>
+        <div className="text-center mt-10 text-[10px] tracking-[0.28em] uppercase text-[var(--ee-magenta)] font-semibold">
+          For Internal Use Only
         </div>
       </form>
     </div>
