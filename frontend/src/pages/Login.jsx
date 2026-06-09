@@ -41,13 +41,11 @@ export default function Login() {
         className="w-full max-w-sm"
         data-testid="login-form"
       >
-        <div className="flex justify-center -mb-12">
-          <img
-            src={LOGO_URL}
-            alt={STORE.name}
-            className="w-56"
-          />
-        </div>
+        <img
+          src={LOGO_URL}
+          alt={STORE.name}
+          className="w-56 h-20 mx-auto object-cover object-center mb-6"
+        />
 
         <div className="space-y-4">
           <div>
