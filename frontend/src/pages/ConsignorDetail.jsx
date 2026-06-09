@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -20,12 +20,16 @@ export default function ConsignorDetail() {
   const [data, setData] = useState(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
 
-  const load = () => api.get(`/consignors/${id}`).then((r) => setData(r.data));
+  const load = useCallback(
+    () => api.get(`/consignors/${id}`).then((r) => setData(r.data)),
+    [id]
+  );
+
   useEffect(() => {
     load().catch((e) => {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
     });
-  }, [id]);
+  }, [load]);
 
   if (!data) {
     return <div className="px-10 py-8 text-sm text-neutral-500">Loading…</div>;

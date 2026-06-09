@@ -1,4 +1,4 @@
-import { useRef, useEffect, useImperativeHandle, forwardRef, useState } from "react";
+import { useRef, useEffect, useImperativeHandle, forwardRef, useState, useCallback } from "react";
 
 /**
  * Lightweight signature pad. Renders a canvas the user can draw on with mouse or touch.
@@ -65,18 +65,25 @@ const SignaturePad = forwardRef(function SignaturePad(
     drawingRef.current = false;
   };
 
-  const clear = () => {
+  const clear = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     setIsEmpty(true);
     onChange?.(true);
-  };
+  }, [onChange]);
 
-  const toDataURL = () => canvasRef.current?.toDataURL("image/png");
+  const toDataURL = useCallback(
+    () => canvasRef.current?.toDataURL("image/png"),
+    []
+  );
 
-  useImperativeHandle(ref, () => ({ clear, toDataURL, isEmpty: () => isEmpty }), [isEmpty]);
+  useImperativeHandle(
+    ref,
+    () => ({ clear, toDataURL, isEmpty: () => isEmpty }),
+    [isEmpty, clear, toDataURL]
+  );
 
   return (
     <div className={`relative ${className}`} style={{ height }}>
