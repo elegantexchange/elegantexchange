@@ -49,17 +49,30 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Index setup warning: {e}")
     await seed_admin(db)
     await seed_demo(db)
-    logger.info("Startup complete")
+    logger.info(
+        "Startup complete · PORT=%s · CORS=%s",
+        os.environ.get("PORT", "unset"),
+        _cors_origins(),
+    )
     yield
     client.close()
 
 
 app = FastAPI(title="The Elegant Exchange · Back of Haus", lifespan=lifespan)
 
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "*")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
+
+_cors = _cors_origins()
+logger.info("CORS allow_origins: %s", _cors)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors,
     allow_methods=["*"],
     allow_headers=["*"],
 )

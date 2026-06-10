@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LOGO_URL, STORE } from "@/lib/brand";
-import { formatApiError } from "@/lib/api";
+import { formatApiError, isBackendConfigured } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 export default function Login() {
@@ -28,7 +28,17 @@ export default function Login() {
       await login(email, password);
       nav("/", { replace: true });
     } catch (e) {
-      setError(formatApiError(e.response?.data?.detail) || e.message);
+      if (!isBackendConfigured) {
+        setError(
+          "App is not connected to the API. Set REACT_APP_BACKEND_URL to your Railway URL and redeploy."
+        );
+      } else if (e.response?.status === 405) {
+        setError(
+          "Login reached the frontend host instead of the API. Set REACT_APP_BACKEND_URL to your Railway backend URL (not this Vercel URL) and redeploy."
+        );
+      } else {
+        setError(formatApiError(e.response?.data?.detail) || e.message);
+      }
     } finally {
       setLoading(false);
     }
