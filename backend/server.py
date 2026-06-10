@@ -30,7 +30,10 @@ logger = logging.getLogger("elegant_exchange")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    client = AsyncIOMotorClient(
+        os.environ["MONGO_URL"],
+        serverSelectionTimeoutMS=10000,
+    )
     db = client[os.environ["DB_NAME"]]
     app.state.mongo_client = client
     app.state.db = db
