@@ -28,6 +28,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("elegant_exchange")
 
 
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = AsyncIOMotorClient(
@@ -61,26 +67,31 @@ async def lifespan(app: FastAPI):
     client.close()
 
 
+# ---------------------------------------------------------------------------
+# Application — CORS middleware must be registered first so it wraps every
+# other middleware and route handler, including the OPTIONS preflight path.
+# ---------------------------------------------------------------------------
+
 app = FastAPI(title="The Elegant Exchange · Back of Haus", lifespan=lifespan)
 
-def _cors_origins() -> list[str]:
-    raw = os.environ.get("CORS_ORIGINS", "*")
-    origins = [o.strip() for o in raw.split(",") if o.strip()]
-    return origins or ["*"]
-
-
 _cors = _cors_origins()
+_wildcard = _cors == ["*"]
 logger.info("CORS allow_origins: %s", _cors)
 
+# Per the Fetch spec, a wildcard origin is incompatible with
+# allow_credentials=True — browsers will reject such responses.
+# When no explicit origins are configured we fall back to wildcard + no
+# credentials; once CORS_ORIGINS is set to real origins credentials work.
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
     allow_origins=_cors,
+    allow_credentials=not _wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# Routers
+# Routers — included after middleware so the CORS layer is outermost
 for r in (
     auth_router,
     consignors_router,
