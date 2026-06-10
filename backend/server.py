@@ -36,13 +36,27 @@ def _cors_origins() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    mongo_url = os.environ.get("MONGO_URL", "")
+    db_name = os.environ.get("DB_NAME", "")
+    if not mongo_url or not db_name:
+        logger.error("Missing MONGO_URL or DB_NAME — check Railway variables")
+        raise RuntimeError("MONGO_URL and DB_NAME are required")
+
+    logger.info("Connecting to MongoDB database=%s", db_name)
     client = AsyncIOMotorClient(
-        os.environ["MONGO_URL"],
+        mongo_url,
         serverSelectionTimeoutMS=10000,
     )
-    db = client[os.environ["DB_NAME"]]
+    db = client[db_name]
     app.state.mongo_client = client
     app.state.db = db
+    try:
+        await client.admin.command("ping")
+        logger.info("MongoDB ping OK")
+    except Exception as e:
+        logger.exception("MongoDB ping failed — check MONGO_URL and Atlas Network Access")
+        raise RuntimeError(f"MongoDB ping failed: {e}") from e
+
     try:
         await db.users.create_index("email", unique=True)
         await db.consignors.create_index("consignor_id", unique=True)
@@ -55,7 +69,7 @@ async def lifespan(app: FastAPI):
         await db.payouts.create_index("consignor_id")
         await db.square_sync_log.create_index("transaction_id", unique=True)
     except Exception as e:
-        logger.warning(f"Index setup warning: {e}")
+        logger.warning("Index setup warning: %s", e)
     await seed_admin(db)
     await seed_demo(db)
     logger.info(
