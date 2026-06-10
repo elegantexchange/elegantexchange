@@ -97,11 +97,11 @@ export default function Consignors() {
 
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
               <tr>
                 {["ID", "Name", "Phone", "Email", "Active Items", "Total Owed", "Payout"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-4 py-3">
+                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">
                     {h}
                   </th>
                 ))}
@@ -115,15 +115,15 @@ export default function Consignors() {
                   className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt hover:bg-[var(--ee-magenta-soft)]/40 cursor-pointer"
                   onClick={() => nav(`/consignors/${c.consignor_id}`)}
                 >
-                  <td className="px-4 py-3 font-semibold">{c.consignor_id}</td>
-                  <td className="px-4 py-3">{c.full_name}</td>
-                  <td className="px-4 py-3 text-neutral-600">{c.phone || "—"}</td>
-                  <td className="px-4 py-3 text-neutral-600">{c.email || "—"}</td>
-                  <td className="px-4 py-3">{c.active_items}</td>
-                  <td className="px-4 py-3 font-semibold text-[var(--ee-magenta)]">
+                  <td className="px-3 py-2.5 font-semibold">{c.consignor_id}</td>
+                  <td className="px-3 py-2.5">{c.full_name}</td>
+                  <td className="px-3 py-2.5 text-neutral-600">{c.phone || "—"}</td>
+                  <td className="px-3 py-2.5 text-neutral-600 max-w-[200px] truncate" title={c.email || undefined}>{c.email || "—"}</td>
+                  <td className="px-3 py-2.5">{c.active_items}</td>
+                  <td className="px-3 py-2.5 font-semibold text-[var(--ee-magenta)]">
                     {fmtMoney(c.total_owed)}
                   </td>
-                  <td className="px-4 py-3 text-neutral-600">{c.payout_method}</td>
+                  <td className="px-3 py-2.5 text-neutral-600">{c.payout_method}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (

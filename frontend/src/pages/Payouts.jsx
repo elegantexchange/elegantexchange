@@ -53,28 +53,28 @@ export default function Payouts() {
       <h2 className="ee-section-header text-base mt-1 mb-3">Queue</h2>
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
               <tr>
                 {["Consignor", "Items Sold", "Balance Owed", "Method", "Days Since Last Payout", ""].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-4 py-3">{h}</th>
+                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody data-testid="payout-queue-tbody">
               {queue.map((r) => (
                 <tr key={r.consignor_id} className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold">{r.full_name}</div>
-                    <div className="text-[10px] text-neutral-500 tracking-wider">{r.consignor_id}</div>
+                  <td className="px-3 py-2.5 font-semibold">
+                    {r.full_name}
+                    <span className="text-neutral-500 font-normal"> · {r.consignor_id}</span>
                   </td>
-                  <td className="px-4 py-3">{r.items_sold}</td>
-                  <td className="px-4 py-3 font-semibold text-[var(--ee-magenta)]">{fmtMoney(r.balance_owed)}</td>
-                  <td className="px-4 py-3">{r.payout_method}</td>
-                  <td className="px-4 py-3 text-neutral-600">
+                  <td className="px-3 py-2.5">{r.items_sold}</td>
+                  <td className="px-3 py-2.5 font-semibold text-[var(--ee-magenta)]">{fmtMoney(r.balance_owed)}</td>
+                  <td className="px-3 py-2.5">{r.payout_method}</td>
+                  <td className="px-3 py-2.5 text-neutral-600">
                     {r.days_since_last_payout == null ? "Never" : `${r.days_since_last_payout}d`}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-3 py-2.5 text-right">
                     <Button
                       data-testid={`payout-row-btn-${r.consignor_id}`}
                       size="sm"
@@ -101,23 +101,28 @@ export default function Payouts() {
       <h2 className="ee-section-header text-base mt-8 mb-3">History</h2>
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
               <tr>
                 {["Date", "Consignor", "Amount", "Method", "Processed By", "Notes"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-4 py-3">{h}</th>
+                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {history.map((p) => (
                 <tr key={p.id} className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt">
-                  <td className="px-4 py-3">{fmtDate(p.date_paid)}</td>
-                  <td className="px-4 py-3 font-semibold">{p.consignor_name}</td>
-                  <td className="px-4 py-3 font-semibold">{fmtMoney(p.amount)}</td>
-                  <td className="px-4 py-3">{p.method}</td>
-                  <td className="px-4 py-3 text-neutral-600">{p.processed_by}</td>
-                  <td className="px-4 py-3 text-neutral-500 text-xs">{p.notes || "—"}</td>
+                  <td className="px-3 py-2.5">{fmtDate(p.date_paid)}</td>
+                  <td className="px-3 py-2.5 font-semibold">
+                    {p.consignor_name}
+                    {p.consignor_id ? (
+                      <span className="text-neutral-500 font-normal"> · {p.consignor_id}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2.5 font-semibold">{fmtMoney(p.amount)}</td>
+                  <td className="px-3 py-2.5">{p.method}</td>
+                  <td className="px-3 py-2.5 text-neutral-600 max-w-[180px] truncate" title={p.processed_by}>{p.processed_by}</td>
+                  <td className="px-3 py-2.5 text-neutral-500 text-xs max-w-[160px] truncate" title={p.notes || undefined}>{p.notes || "—"}</td>
                 </tr>
               ))}
               {history.length === 0 && (

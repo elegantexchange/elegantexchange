@@ -104,11 +104,11 @@ export default function Sales() {
 
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
               <tr>
                 {["Date", "Item ID", "Consignor", "Description", "Sale Price", "Store Cut", "Consignor Cut", "Payout", "Notes"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-3 py-3">{h}</th>
+                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -117,8 +117,11 @@ export default function Sales() {
                 <tr key={s.id} className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt">
                   <td className="px-3 py-2.5">{fmtDate(s.sale_date)}</td>
                   <td className="px-3 py-2.5 font-semibold">{s.item_id}</td>
-                  <td className="px-3 py-2.5">{s.consignor_name}</td>
-                  <td className="px-3 py-2.5 text-neutral-700 max-w-[240px] truncate">{s.description}</td>
+                  <td className="px-3 py-2.5">
+                    {s.consignor_name}
+                    <span className="text-neutral-500 font-normal"> · {s.consignor_id}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-neutral-700 max-w-[220px] truncate" title={s.description}>{s.description}</td>
                   <td className="px-3 py-2.5 font-semibold">{fmtMoney(s.sale_price)}</td>
                   <td className="px-3 py-2.5 text-neutral-700">{fmtMoney(s.store_cut)}</td>
                   <td className="px-3 py-2.5 text-[var(--ee-magenta)] font-semibold">{fmtMoney(s.consignor_cut)}</td>
@@ -127,7 +130,7 @@ export default function Sales() {
                       {s.payout_status}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-neutral-500 text-xs">{s.notes || "—"}</td>
+                  <td className="px-3 py-2.5 text-neutral-500 text-xs max-w-[160px] truncate" title={s.notes || undefined}>{s.notes || "—"}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (

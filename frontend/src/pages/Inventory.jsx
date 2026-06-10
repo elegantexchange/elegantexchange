@@ -97,14 +97,13 @@ export default function Inventory() {
         testid="inventory-title"
       />
 
-      {/* Quick filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f}
             data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
             onClick={() => setStatusFilter(f)}
-            className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded border ${
+            className={`shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded border ${
               statusFilter === f
                 ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
                 : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
@@ -113,11 +112,7 @@ export default function Inventory() {
             {f}
           </button>
         ))}
-      </div>
-
-      {/* Search + category */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[240px] max-w-md">
+        <div className="relative shrink-0 w-56 min-w-[12rem]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
           <Input
             data-testid="inventory-search"
@@ -127,15 +122,17 @@ export default function Inventory() {
             className="pl-9"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All categories</SelectItem>
-            {CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="shrink-0">
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All categories</SelectItem>
+              {CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Bulk action bar */}
@@ -159,14 +156,14 @@ export default function Inventory() {
 
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
               <tr>
                 <th className="px-3 py-3 w-8">
                   <Checkbox checked={allChecked} onCheckedChange={toggleAll} data-testid="inv-select-all" />
                 </th>
-                {["Item ID", "Consignor", "Description", "Category", "Size", "Price", "Date In", "Period End", "Status"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-3 py-3">{h}</th>
+                {["Status", "Item ID", "Consignor", "Description", "Category", "Size", "Price", "Date In", "Period End"].map((h) => (
+                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -180,23 +177,23 @@ export default function Inventory() {
                       onCheckedChange={() => toggle(i.item_id)}
                     />
                   </td>
+                  <td className="px-3 py-2.5"><StatusPill status={i.status} /></td>
                   <td className="px-3 py-2.5 font-semibold">{i.item_id}</td>
                   <td className="px-3 py-2.5">
                     <button
                       onClick={() => nav(`/consignors/${i.consignor_id}`)}
-                      className="text-left hover:text-[var(--ee-magenta)]"
+                      className="text-left hover:text-[var(--ee-magenta)] whitespace-nowrap"
                     >
                       {i.consignor_name}
-                      <div className="text-[10px] text-neutral-500 tracking-wider">{i.consignor_id}</div>
+                      <span className="text-neutral-500 font-normal"> · {i.consignor_id}</span>
                     </button>
                   </td>
-                  <td className="px-3 py-2.5">{i.description}</td>
+                  <td className="px-3 py-2.5 max-w-[220px] truncate" title={i.description}>{i.description}</td>
                   <td className="px-3 py-2.5 text-neutral-600">{i.category}</td>
                   <td className="px-3 py-2.5 text-neutral-600">{i.size}</td>
                   <td className="px-3 py-2.5 font-semibold">{fmtMoney(i.asking_price)}</td>
                   <td className="px-3 py-2.5 text-neutral-600">{fmtDate(i.date_in)}</td>
                   <td className="px-3 py-2.5 text-neutral-600">{fmtDate(i.period_end)}</td>
-                  <td className="px-3 py-2.5"><StatusPill status={i.status} /></td>
                 </tr>
               ))}
               {filtered.length === 0 && (
