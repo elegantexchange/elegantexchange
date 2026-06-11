@@ -9,7 +9,7 @@ from id_gen import next_item_id
 
 
 async def seed_admin(db) -> None:
-    admin_email = os.environ.get("ADMIN_EMAIL", "info@elegantexchange.co").lower()
+    admin_email = os.environ.get("ADMIN_EMAIL", "shop@elegantexchange.co").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "ElegantExchange2026!")
     admin_name = os.environ.get("ADMIN_NAME", "Owner")
     existing = await db.users.find_one({"email": admin_email})
@@ -24,7 +24,7 @@ async def seed_admin(db) -> None:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
-    elif existing.get("role") != "owner":
+    elif (existing.get("role") or "").lower() != "owner":
         await db.users.update_one(
             {"email": admin_email},
             {"$set": {"role": "owner"}},

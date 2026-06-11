@@ -3,12 +3,13 @@ import { LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { LOGO_URL, STORE } from "@/lib/brand";
 import { NAV_ITEMS } from "@/constants/nav";
+import { isOwner } from "@/lib/auth";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
 
-  const items = NAV_ITEMS.filter((i) => !i.ownerOnly || user?.role === "owner");
+  const items = NAV_ITEMS.filter((i) => !i.ownerOnly || isOwner(user));
 
   return (
     <aside

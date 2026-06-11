@@ -12,11 +12,12 @@ import Payouts from "@/pages/Payouts";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import TagPrint from "@/pages/TagPrint";
+import { isOwner } from "@/lib/auth";
 
 function OwnerOnly({ children }) {
   const { user } = useAuth();
   if (!user) return null;
-  if (user.role !== "owner") return <Navigate to="/" replace />;
+  if (!isOwner(user)) return <Navigate to="/" replace />;
   return children;
 }
 

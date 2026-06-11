@@ -65,7 +65,11 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+def is_owner(user: dict) -> bool:
+    return (user.get("role") or "").lower() == "owner"
+
+
 async def require_owner(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "owner":
+    if not is_owner(user):
         raise HTTPException(status_code=403, detail="Owner access required")
     return user
