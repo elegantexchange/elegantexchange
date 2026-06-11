@@ -24,6 +24,11 @@ async def seed_admin(db) -> None:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
+    elif existing.get("role") != "owner":
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"role": "owner"}},
+        )
     # Optional staff demo
     staff_email = "staff@elegantexchange.co"
     if not await db.users.find_one({"email": staff_email}):

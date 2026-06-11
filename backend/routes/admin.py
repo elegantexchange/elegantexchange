@@ -5,6 +5,7 @@ from auth import require_owner
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
+# Never touch `users` — owner/staff logins and roles live there.
 _BOUTIQUE_COLLECTIONS = (
     "consignors",
     "inventory",
