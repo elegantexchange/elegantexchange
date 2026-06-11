@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta, date
 from typing import List
 
 from auth import hash_password
+from id_gen import next_item_id
 
 
 async def seed_admin(db) -> None:
@@ -113,8 +114,7 @@ async def seed_demo(db) -> None:
         consignor = consignor_records[idx % len(consignor_records)]
         days_ago = random.randint(2, 65)
         date_in = (today - timedelta(days=days_ago)).isoformat()
-        seq = await _next_id(db, f"item:{consignor['consignor_id']}")
-        item_id = f"{consignor['consignor_id']}-{seq:02d}"
+        item_id = await next_item_id(db, consignor["consignor_id"])
         period_end = (
             date.fromisoformat(date_in) + timedelta(days=60)
         ).isoformat()

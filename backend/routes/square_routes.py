@@ -186,7 +186,7 @@ async def sync(request: Request, _u: dict = Depends(get_current_user)):
             # Try to match by EE-### in note
             matched_item_id = None
             import re
-            m = re.search(r"EE-\d{3}-\d{2}", note)
+            m = re.search(r"EE-\d{4}", note)
             if m:
                 candidate = m.group(0)
                 item = await db.inventory.find_one({"item_id": candidate})

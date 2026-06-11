@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  ResponsiveModal,
+  ResponsiveModalContent,
+  ResponsiveModalFooter,
+  ResponsiveModalHeader,
+  ResponsiveModalTitle,
+} from "@/components/ResponsiveModal";
 import {
   Select,
   SelectContent,
@@ -77,10 +77,6 @@ export default function Settings() {
 
       <section className="bg-white border border-[var(--ee-border)] rounded-md p-6 mb-6">
         <h2 className="ee-section-header text-base mb-1">Square POS Integration</h2>
-        <p className="text-sm text-neutral-500 font-light mb-4">
-          Connect your Square account to auto-sync transactions. Items match by
-          Item ID (e.g. EE-001-01) when included in the Square sale note.
-        </p>
         {!square?.configured ? (
           <div
             className="rounded-md p-4 text-sm"
@@ -92,20 +88,22 @@ export default function Settings() {
             then restart the backend.
           </div>
         ) : square?.connected ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-[var(--ee-magenta-soft)] rounded-md px-3 py-2 text-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="bg-[var(--ee-magenta-soft)] rounded-md px-3 py-2 text-sm min-w-0">
               <span className="font-semibold">Connected</span> · Merchant {square.merchant_id} ·{" "}
               {square.environment}
               <div className="text-xs text-neutral-500 mt-0.5">
                 Last sync: {fmtDateTime(square.last_sync_at)}
               </div>
             </div>
-            <Button onClick={sync} variant="outline" className="ee-btn-label" data-testid="settings-sync-btn">
-              <RefreshCw size={14} className="mr-1" /> Sync Now
-            </Button>
-            <Button onClick={disconnect} variant="outline" className="ee-btn-label" data-testid="settings-disconnect-btn">
-              Disconnect
-            </Button>
+            <div className="ee-page-actions">
+              <Button onClick={sync} variant="outline" className="ee-btn-label" data-testid="settings-sync-btn">
+                <RefreshCw size={14} className="mr-1" /> Sync Now
+              </Button>
+              <Button onClick={disconnect} variant="outline" className="ee-btn-label" data-testid="settings-disconnect-btn">
+                Disconnect
+              </Button>
+            </div>
           </div>
         ) : (
           <Button
@@ -210,11 +208,11 @@ function NewUserDialog({ open, onClose, onDone }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md" data-testid="new-user-dialog">
-        <DialogHeader>
-          <DialogTitle className="ee-section-header text-xl">New User</DialogTitle>
-        </DialogHeader>
+    <ResponsiveModal open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent className="max-w-md" data-testid="new-user-dialog">
+        <ResponsiveModalHeader>
+          <ResponsiveModalTitle className="ee-section-header text-xl">New User</ResponsiveModalTitle>
+        </ResponsiveModalHeader>
         <div className="space-y-3">
           <div>
             <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">Name</Label>
@@ -239,11 +237,11 @@ function NewUserDialog({ open, onClose, onDone }) {
             </Select>
           </div>
         </div>
-        <DialogFooter>
+        <ResponsiveModalFooter>
           <Button variant="outline" onClick={onClose} className="ee-btn-label">Cancel</Button>
           <Button data-testid="new-user-submit" disabled={busy} onClick={submit} className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white">Create</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveModalFooter>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
   );
 }

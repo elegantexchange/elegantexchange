@@ -181,7 +181,7 @@ class TestConsignors:
         assert len(items) == 2
         for it in items:
             iid = it.get("item_id")
-            assert iid and iid.startswith("EE-") and "-" in iid[3:], iid
+            assert iid and iid.startswith("EE-") and len(iid) == 7 and iid[3:].isdigit(), iid
             pe = it.get("period_end")
             di = it.get("date_in")
             assert pe and di, it

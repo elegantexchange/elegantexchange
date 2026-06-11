@@ -1,4 +1,4 @@
-"""The Elegant Exchange — Back of Haus · FastAPI server."""
+"""The Elegant Exchange · FastAPI server."""
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -71,7 +71,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Index setup warning: %s", e)
     await seed_admin(db)
-    await seed_demo(db)
+    if os.environ.get("SEED_DEMO", "").lower() in ("1", "true", "yes"):
+        await seed_demo(db)
     logger.info(
         "Startup complete · PORT=%s · CORS=%s",
         os.environ.get("PORT", "unset"),
@@ -86,7 +87,7 @@ async def lifespan(app: FastAPI):
 # other middleware and route handler, including the OPTIONS preflight path.
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="The Elegant Exchange · Back of Haus", lifespan=lifespan)
+app = FastAPI(title="The Elegant Exchange", lifespan=lifespan)
 
 _cors = _cors_origins()
 _wildcard = _cors == ["*"]
@@ -121,4 +122,4 @@ for r in (
 
 @app.get("/api")
 async def root():
-    return {"app": "The Elegant Exchange · Back of Haus", "ok": True}
+    return {"app": "The Elegant Exchange", "ok": True}
