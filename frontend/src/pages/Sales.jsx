@@ -8,12 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, RefreshCw } from "lucide-react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  ResponsiveModal,
+  ResponsiveModalContent,
+  ResponsiveModalFooter,
+  ResponsiveModalHeader,
+  ResponsiveModalTitle,
+} from "@/components/ResponsiveModal";
 import { toast } from "sonner";
 
 export default function Sales() {
@@ -91,14 +91,14 @@ export default function Sales() {
         }
       />
 
-      <div className="relative max-w-md mb-4">
+      <div className="relative w-full mb-4">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
         <Input
           data-testid="sales-search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search item, consignor, description…"
-          className="pl-9"
+          className="w-full pl-9"
         />
       </div>
 
@@ -208,11 +208,11 @@ function LogSaleDialog({ open, onClose, onCreated }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl" data-testid="log-sale-dialog">
-        <DialogHeader>
-          <DialogTitle className="ee-section-header text-xl">Log Sale</DialogTitle>
-        </DialogHeader>
+    <ResponsiveModal open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent className="max-w-xl" data-testid="log-sale-dialog">
+        <ResponsiveModalHeader>
+          <ResponsiveModalTitle className="ee-section-header text-xl">Log Sale</ResponsiveModalTitle>
+        </ResponsiveModalHeader>
         <div>
           <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
             Item (Active only)
@@ -290,7 +290,7 @@ function LogSaleDialog({ open, onClose, onCreated }) {
             Selected: <span className="font-semibold text-neutral-700">{selected.item_id}</span> · {selected.description}
           </div>
         )}
-        <DialogFooter>
+        <ResponsiveModalFooter>
           <Button variant="outline" className="ee-btn-label" onClick={onClose}>Cancel</Button>
           <Button
             data-testid="sale-submit"
@@ -300,8 +300,8 @@ function LogSaleDialog({ open, onClose, onCreated }) {
           >
             Log Sale
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveModalFooter>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
   );
 }

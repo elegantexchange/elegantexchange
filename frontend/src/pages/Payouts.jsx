@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  ResponsiveModal,
+  ResponsiveModalContent,
+  ResponsiveModalFooter,
+  ResponsiveModalHeader,
+  ResponsiveModalTitle,
+} from "@/components/ResponsiveModal";
 import {
   Select,
   SelectContent,
@@ -40,17 +40,10 @@ export default function Payouts() {
     load();
   }, []);
 
-  const totalOwed = queue.reduce((acc, r) => acc + r.balance_owed, 0);
-
   return (
     <div className="px-6 md:px-10 py-8">
-      <PageHeader
-        title="Payouts"
-        subtitle={`${fmtMoney(totalOwed)} pending across ${queue.length} consignor${queue.length === 1 ? "" : "s"}`}
-        testid="payouts-title"
-      />
+      <PageHeader title="Payouts" testid="payouts-title" />
 
-      <h2 className="ee-section-header text-base mt-1 mb-3">Queue</h2>
       <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
@@ -180,13 +173,13 @@ function ProcessDialog({ active, onClose, onDone }) {
   };
 
   return (
-    <Dialog open={!!active} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md" data-testid="process-payout-dialog">
-        <DialogHeader>
-          <DialogTitle className="ee-section-header text-xl flex items-center gap-2">
+    <ResponsiveModal open={!!active} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent className="max-w-md" data-testid="process-payout-dialog">
+        <ResponsiveModalHeader>
+          <ResponsiveModalTitle className="ee-section-header text-xl flex items-center gap-2">
             <Wallet size={18} className="text-[var(--ee-magenta)]" /> Process Payout
-          </DialogTitle>
-        </DialogHeader>
+          </ResponsiveModalTitle>
+        </ResponsiveModalHeader>
         <div className="space-y-3">
           <div className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-border)] rounded p-3">
             <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-600 font-semibold">
@@ -224,7 +217,7 @@ function ProcessDialog({ active, onClose, onDone }) {
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </div>
         </div>
-        <DialogFooter>
+        <ResponsiveModalFooter>
           <Button variant="outline" className="ee-btn-label" onClick={onClose}>Cancel</Button>
           <Button
             data-testid="payout-submit"
@@ -234,8 +227,8 @@ function ProcessDialog({ active, onClose, onDone }) {
           >
             Confirm Payout
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveModalFooter>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
   );
 }

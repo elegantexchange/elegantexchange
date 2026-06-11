@@ -84,6 +84,94 @@ body {
     font-size: 11px;
 }
 
+.ee-page-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    max-width: 100%;
+}
+
+.ee-page-actions::-webkit-scrollbar {
+    display: none;
+}
+
+.ee-page-actions > * {
+    flex-shrink: 0;
+}
+
+.ee-btn-group {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    max-width: 100%;
+}
+
+.ee-btn-group::-webkit-scrollbar {
+    display: none;
+}
+
+.ee-btn-group > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.ee-chart {
+    width: 100%;
+    min-width: 0;
+    height: 17.5rem;
+}
+
+@media (min-width: 640px) {
+    .ee-chart {
+        height: 16rem;
+    }
+}
+
+@media (min-width: 1024px) {
+    .ee-chart {
+        height: 18rem;
+    }
+}
+
+/* Alerts panel — layout follows content width, not viewport */
+.ee-alerts-panel {
+    container-type: inline-size;
+}
+
+.ee-alerts-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+}
+
+@container (min-width: 40rem) {
+    .ee-alerts-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+}
+
+@container (min-width: 56rem) {
+    .ee-alerts-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 39.99rem) {
+    .ee-alerts-grid > * + * {
+        border-top: 1px solid var(--ee-border);
+        padding-top: 1.25rem;
+    }
+}
+
 /* Alt row pink */
 .ee-row-alt:nth-child(even) {
     background: #fbf3f7;

@@ -4,12 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  ResponsiveModal,
+  ResponsiveModalContent,
+} from "@/components/ResponsiveModal";
 import {
   Select,
   SelectContent,
@@ -38,11 +35,13 @@ const STEPS = [
   { key: "agreement", label: "Agreement & Signature" },
 ];
 
-export default function IntakeDialog({ open, onClose, onDone, presetConsignorId }) {
+const INTAKE_SHELL_CLASS = "p-0 gap-0 overflow-hidden flex flex-col";
+
+export default function IntakeDialog({ open, onClose, onDone, presetConsignorId, presetMode }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        className="max-w-3xl max-h-[92vh] overflow-y-auto"
+    <ResponsiveModal open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent
+        className={`${INTAKE_SHELL_CLASS} max-w-xl lg:max-w-2xl`}
         data-testid="intake-dialog"
       >
         {open ? (
@@ -50,18 +49,19 @@ export default function IntakeDialog({ open, onClose, onDone, presetConsignorId 
             onClose={onClose}
             onDone={onDone}
             presetConsignorId={presetConsignorId}
+            presetMode={presetMode}
           />
         ) : null}
-      </DialogContent>
-    </Dialog>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
   );
 }
 
-function IntakeWizard({ onClose, onDone, presetConsignorId }) {
+function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [consignors, setConsignors] = useState([]);
-  const [mode, setMode] = useState("existing"); // existing | new
+  const [mode, setMode] = useState(presetMode || "existing"); // existing | new
   const [consignorId, setConsignorId] = useState(presetConsignorId || "");
   const [newConsignor, setNewConsignor] = useState({
     full_name: "",
@@ -169,76 +169,78 @@ function IntakeWizard({ onClose, onDone, presetConsignorId }) {
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle className="ee-section-header text-xl">
+      <div className="shrink-0 px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
+        <h2 className="ee-section-header text-lg sm:text-xl pr-6 font-semibold tracking-tight">
           New Drop-Off
-        </DialogTitle>
-      </DialogHeader>
+        </h2>
+      </div>
 
-      {/* Stepper */}
-      <ol className="flex items-center gap-1 sm:gap-2 text-[10px] uppercase tracking-[0.14em] font-semibold border-b border-[var(--ee-border)] pb-3 mb-1 overflow-x-auto">
-        {STEPS.map((s, i) => (
-          <li
-            key={s.key}
-            className={`flex items-center gap-2 whitespace-nowrap ${
-              i === step
-                ? "text-[var(--ee-magenta)]"
-                : i < step
-                ? "text-neutral-700"
-                : "text-neutral-400"
-            }`}
-          >
-            <span
-              className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] ${
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-5 sm:px-5 sm:pb-6">
+        {/* Stepper */}
+        <ol className="flex items-center gap-1 sm:gap-2 text-[10px] uppercase tracking-[0.14em] font-semibold border-b border-[var(--ee-border)] pb-3 mb-5 sm:mb-6 overflow-x-auto">
+          {STEPS.map((s, i) => (
+            <li
+              key={s.key}
+              className={`flex items-center gap-2 whitespace-nowrap ${
                 i === step
-                  ? "bg-[var(--ee-magenta)] text-white"
+                  ? "text-[var(--ee-magenta)]"
                   : i < step
-                  ? "bg-neutral-700 text-white"
-                  : "bg-neutral-200 text-neutral-500"
+                  ? "text-neutral-700"
+                  : "text-neutral-400"
               }`}
             >
-              {i + 1}
-            </span>
-            <span className="hidden sm:inline">{s.label}</span>
-            {i < STEPS.length - 1 && (
-              <ChevronRight size={12} className="text-neutral-300" />
-            )}
-          </li>
-        ))}
-      </ol>
+              <span
+                className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] ${
+                  i === step
+                    ? "bg-[var(--ee-magenta)] text-white"
+                    : i < step
+                    ? "bg-neutral-700 text-white"
+                    : "bg-neutral-200 text-neutral-500"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <span className="hidden sm:inline">{s.label}</span>
+              {i < STEPS.length - 1 && (
+                <ChevronRight size={12} className="text-neutral-300" />
+              )}
+            </li>
+          ))}
+        </ol>
 
-      {step === 0 && (
-        <StepConsignor
-          mode={mode}
-          setMode={setMode}
-          consignors={consignors}
-          consignorId={consignorId}
-          setConsignorId={setConsignorId}
-          newConsignor={newConsignor}
-          setNewConsignor={setNewConsignor}
-        />
-      )}
-      {step === 1 && (
-        <StepItems items={items} setItem={setItem} setItems={setItems} />
-      )}
-      {step === 2 && (
-        <StepAgreement
-          consignorName={consignorDisplayName || newConsignor.full_name}
-          consignorId={consignorDisplayId}
-          signedName={signedName}
-          setSignedName={setSignedName}
-          sigRef={sigRef}
-          sigEmpty={sigEmpty}
-          setSigEmpty={setSigEmpty}
-          items={validItems}
-        />
-      )}
+        {step === 0 && (
+          <StepConsignor
+            mode={mode}
+            setMode={setMode}
+            consignors={consignors}
+            consignorId={consignorId}
+            setConsignorId={setConsignorId}
+            newConsignor={newConsignor}
+            setNewConsignor={setNewConsignor}
+          />
+        )}
+        {step === 1 && (
+          <StepItems items={items} setItem={setItem} setItems={setItems} />
+        )}
+        {step === 2 && (
+          <StepAgreement
+            consignorName={consignorDisplayName || newConsignor.full_name}
+            consignorId={consignorDisplayId}
+            signedName={signedName}
+            setSignedName={setSignedName}
+            sigRef={sigRef}
+            sigEmpty={sigEmpty}
+            setSigEmpty={setSigEmpty}
+            items={validItems}
+          />
+        )}
+      </div>
 
-      <DialogFooter className="!justify-between gap-2 pt-2">
+      <div className="shrink-0 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 sm:px-5 sm:py-4 border-t border-[var(--ee-border)]">
         <Button
           variant="outline"
           onClick={step === 0 ? onClose : back}
-          className="ee-btn-label"
+          className="ee-btn-label w-full sm:w-auto"
           data-testid="intake-back"
         >
           <ChevronLeft size={14} className="mr-1" />
@@ -248,7 +250,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId }) {
           data-testid="intake-next"
           onClick={next}
           disabled={busy || (step === 2 && !canSubmit)}
-          className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+          className="ee-btn-label w-full sm:w-auto bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
         >
           {step === 2 ? (
             <>
@@ -260,7 +262,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId }) {
             </>
           )}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }
@@ -275,29 +277,31 @@ function StepConsignor({
   setNewConsignor,
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       <div className="flex gap-2">
         <button
           data-testid="intake-mode-existing"
           onClick={() => setMode("existing")}
-          className={`flex-1 text-[11px] uppercase tracking-[0.12em] font-semibold py-2 rounded border ${
+          className={`flex-1 min-w-0 text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "existing"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
           }`}
         >
-          Existing Consignor
+          <span className="sm:hidden">Existing</span>
+          <span className="hidden sm:inline">Existing Consignor</span>
         </button>
         <button
           data-testid="intake-mode-new"
           onClick={() => setMode("new")}
-          className={`flex-1 text-[11px] uppercase tracking-[0.12em] font-semibold py-2 rounded border ${
+          className={`flex-1 min-w-0 text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "new"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
           }`}
         >
-          New Consignor
+          <span className="sm:hidden">New</span>
+          <span className="hidden sm:inline">New Consignor</span>
         </button>
       </div>
 
@@ -433,6 +437,7 @@ function StepItems({ items, setItem, setItems }) {
                         setItem(idx, { description: e.target.value })
                       }
                       placeholder="e.g. Silk wrap dress, blush"
+                      className="text-sm"
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -454,7 +459,7 @@ function StepItems({ items, setItem, setItems }) {
                   </td>
                   <td className="px-3 py-2">
                     <Input
-                      className="w-[70px]"
+                      className="w-[70px] text-sm"
                       value={it.size}
                       onChange={(e) => setItem(idx, { size: e.target.value })}
                     />
@@ -479,7 +484,7 @@ function StepItems({ items, setItem, setItems }) {
                   <td className="px-3 py-2">
                     <Input
                       data-testid={`intake-price-${idx}`}
-                      className="w-[80px]"
+                      className="w-[80px] text-sm"
                       type="number"
                       value={it.asking_price}
                       onChange={(e) =>
@@ -532,8 +537,8 @@ function StepAgreement({
   );
   const today = new Date();
   return (
-    <div className="space-y-4">
-      <div className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-border)] rounded-md p-3 text-xs">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-border)] rounded-md p-2.5 sm:p-3 text-xs">
         <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-600 font-semibold">
           Summary
         </div>
@@ -554,7 +559,7 @@ function StepAgreement({
           Consignment Agreement
         </Label>
         <div
-          className="mt-1 border border-[var(--ee-border)] rounded-md bg-white p-3 text-[11px] leading-relaxed text-neutral-700 max-h-44 overflow-y-auto whitespace-pre-wrap font-light"
+          className="mt-1 border border-[var(--ee-border)] rounded-md bg-white p-2.5 sm:p-3 text-[11px] leading-relaxed text-neutral-700 max-h-28 sm:max-h-36 md:max-h-44 overflow-y-auto whitespace-pre-wrap font-light"
           data-testid="agreement-text"
         >
           {agreementText}
@@ -596,7 +601,7 @@ function StepAgreement({
             <Eraser size={12} /> Clear
           </button>
         </div>
-        <SignaturePad ref={sigRef} onChange={setSigEmpty} className="mt-1" />
+        <SignaturePad ref={sigRef} onChange={setSigEmpty} height={120} className="mt-1" />
         <div className="mt-2 flex items-center gap-1 text-[11px] text-neutral-500 font-light">
           {sigEmpty ? (
             "Awaiting signature…"

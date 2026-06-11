@@ -1,32 +1,14 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Users,
-  Package,
-  Receipt,
-  Wallet,
-  BarChart3,
-  Settings as SettingsIcon,
-  LogOut,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { LOGO_URL, STORE } from "@/lib/brand";
-
-const ITEMS = [
-  { to: "/", label: "Home", icon: LayoutDashboard, testid: "nav-home" },
-  { to: "/consignors", label: "Consignors", icon: Users, testid: "nav-consignors" },
-  { to: "/inventory", label: "Inventory", icon: Package, testid: "nav-inventory" },
-  { to: "/sales", label: "Sales", icon: Receipt, testid: "nav-sales" },
-  { to: "/payouts", label: "Payouts", icon: Wallet, testid: "nav-payouts", ownerOnly: true },
-  { to: "/analytics", label: "Analytics", icon: BarChart3, testid: "nav-analytics", ownerOnly: true },
-  { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings", ownerOnly: true },
-];
+import { NAV_ITEMS } from "@/constants/nav";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
 
-  const items = ITEMS.filter((i) => !i.ownerOnly || user?.role === "owner");
+  const items = NAV_ITEMS.filter((i) => !i.ownerOnly || user?.role === "owner");
 
   return (
     <aside

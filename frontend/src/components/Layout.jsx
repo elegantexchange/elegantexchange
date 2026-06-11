@@ -1,6 +1,6 @@
 import { Outlet, Navigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
-import MobileTabBar from "@/components/MobileTabBar";
+import MobileNav from "@/components/MobileNav";
 import { useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -16,10 +16,12 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex w-full">
       <Sidebar />
-      <main className="flex-1 min-w-0 pb-20 md:pb-0">
-        <Outlet />
-      </main>
-      <MobileTabBar />
+      <div className="flex-1 min-w-0 flex flex-col">
+        <MobileNav />
+        <main className="flex-1 min-w-0">
+          <Outlet />
+        </main>
+      </div>
       <Toaster position="top-right" />
     </div>
   );

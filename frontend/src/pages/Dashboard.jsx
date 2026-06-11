@@ -42,7 +42,7 @@ export default function Dashboard() {
     (data?.alerts.stale_balances?.length || 0);
 
   return (
-    <div className="px-6 md:px-10 py-8">
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8">
       <PageHeader
         title="Home"
         subtitle="Today at the boutique."
@@ -112,11 +112,11 @@ export default function Dashboard() {
         {/* Trend chart */}
         <section
           data-testid="trend-chart-card"
-          className="lg:col-span-2 bg-white border border-[var(--ee-border)] rounded-md p-5"
+          className="lg:col-span-2 min-w-0 bg-white border border-[var(--ee-border)] rounded-md p-4 sm:p-5"
         >
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="ee-section-header text-base">Sales Trend</h2>
-            <div className="flex gap-1">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+            <h2 className="ee-section-header text-base shrink-0">Sales Trend</h2>
+            <div className="ee-btn-group">
               {[
                 ["week", "This Week"],
                 ["month", "This Month"],
@@ -137,17 +137,25 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-          <div className="h-64">
+          <div className="ee-chart">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
+              <LineChart data={chartData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                 <XAxis
                   dataKey="label"
                   tick={{ fontSize: 10, fill: "#888" }}
                   axisLine={{ stroke: "#ddd" }}
                   tickLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={8}
                 />
-                <YAxis tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
+                <YAxis
+                  width={48}
+                  tick={{ fontSize: 10, fill: "#888" }}
+                  axisLine={{ stroke: "#ddd" }}
+                  tickLine={false}
+                  tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)}
+                />
                 <Tooltip
                   contentStyle={{
                     fontSize: 12,
@@ -212,11 +220,11 @@ export default function Dashboard() {
       {/* Alerts */}
       <section
         data-testid="alerts-panel"
-        className="mt-6 bg-white border border-[var(--ee-magenta)] rounded-md p-5"
+        className="ee-alerts-panel mt-6 bg-white border border-[var(--ee-magenta)] rounded-md p-4 sm:p-5 min-w-0"
         style={{ borderWidth: 1.5 }}
       >
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle size={16} className="text-[var(--ee-magenta)]" />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4">
+          <AlertTriangle size={16} className="text-[var(--ee-magenta)] shrink-0" />
           <h2 className="ee-section-header text-base">
             Needs Attention
             <span className="ml-2 text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)]">
@@ -224,20 +232,19 @@ export default function Dashboard() {
             </span>
           </h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div>
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1">
-              <Clock size={12} /> Expiring · 7 days
+        <div className="ee-alerts-grid">
+          <div className="min-w-0">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+              <Clock size={12} className="shrink-0" /> Expiring · 7 days
             </div>
-            <ul className="mt-2 space-y-1.5 text-sm">
+            <ul className="mt-2.5 space-y-2 text-sm">
               {(data?.alerts.expiring_soon || []).slice(0, 5).map((i) => (
-                <li key={i.item_id} className="flex justify-between gap-2">
-                  <span className="truncate">
-                    {i.item_id} · {i.description}
-                  </span>
-                  <span className="text-neutral-500 text-xs shrink-0">
-                    {fmtDate(i.period_end)}
-                  </span>
+                <li key={i.item_id} className="min-w-0">
+                  <div className="text-[13px] leading-snug">
+                    <span className="font-medium">{i.item_id}</span>
+                    <span className="text-neutral-600"> · {i.description}</span>
+                  </div>
+                  <div className="text-xs text-neutral-500 mt-0.5">{fmtDate(i.period_end)}</div>
                 </li>
               ))}
               {(!data?.alerts.expiring_soon || data.alerts.expiring_soon.length === 0) && (
@@ -245,19 +252,18 @@ export default function Dashboard() {
               )}
             </ul>
           </div>
-          <div>
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1">
-              <TrendingDown size={12} /> Expired · no resolution
+          <div className="min-w-0">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+              <TrendingDown size={12} className="shrink-0" /> Expired · no resolution
             </div>
-            <ul className="mt-2 space-y-1.5 text-sm">
+            <ul className="mt-2.5 space-y-2 text-sm">
               {(data?.alerts.expired || []).slice(0, 5).map((i) => (
-                <li key={i.item_id} className="flex justify-between gap-2">
-                  <span className="truncate">
-                    {i.item_id} · {i.description}
-                  </span>
-                  <span className="text-neutral-500 text-xs shrink-0">
-                    {fmtDate(i.period_end)}
-                  </span>
+                <li key={i.item_id} className="min-w-0">
+                  <div className="text-[13px] leading-snug">
+                    <span className="font-medium">{i.item_id}</span>
+                    <span className="text-neutral-600"> · {i.description}</span>
+                  </div>
+                  <div className="text-xs text-neutral-500 mt-0.5">{fmtDate(i.period_end)}</div>
                 </li>
               ))}
               {(!data?.alerts.expired || data.alerts.expired.length === 0) && (
@@ -265,15 +271,15 @@ export default function Dashboard() {
               )}
             </ul>
           </div>
-          <div>
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1">
-              <Clock size={12} /> Unpaid · 14+ days
+          <div className="min-w-0">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+              <Clock size={12} className="shrink-0" /> Unpaid · 14+ days
             </div>
-            <ul className="mt-2 space-y-1.5 text-sm">
+            <ul className="mt-2.5 space-y-2 text-sm">
               {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
-                <li key={b.consignor_id} className="flex justify-between gap-2">
-                  <span className="truncate">{b.full_name}</span>
-                  <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold">
+                <li key={b.consignor_id} className="flex items-baseline justify-between gap-3 min-w-0">
+                  <span className="min-w-0 truncate">{b.full_name}</span>
+                  <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
                     {fmtMoney(b.balance)}
                   </span>
                 </li>

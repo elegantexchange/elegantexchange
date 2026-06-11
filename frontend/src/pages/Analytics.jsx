@@ -78,39 +78,35 @@ export default function Analytics() {
   };
 
   return (
-    <div className="px-6 md:px-10 py-8">
-      <PageHeader
-        title="Analytics"
-        subtitle="Performance across the boutique."
-        testid="analytics-title"
-        actions={
-          <Button
-            data-testid="export-csv"
-            variant="outline"
-            className="ee-btn-label"
-            onClick={exportCsv}
-          >
-            <Download size={14} className="md:mr-1" />
-            <span className="hidden md:inline">Export CSV</span>
-          </Button>
-        }
-      />
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8">
+      <PageHeader title="Analytics" testid="analytics-title" />
 
-      <div className="flex flex-wrap gap-2 mb-5">
-        {RANGES.map(([k, label]) => (
-          <button
-            key={k}
-            data-testid={`range-${k}`}
-            onClick={() => setPeriod(k)}
-            className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded border ${
-              period === k
-                ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-                : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center gap-2 mb-5 min-w-0">
+        <div className="ee-btn-group flex-1 min-w-0">
+          {RANGES.map(([k, label]) => (
+            <button
+              key={k}
+              data-testid={`range-${k}`}
+              onClick={() => setPeriod(k)}
+              className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded border ${
+                period === k
+                  ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
+                  : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button
+          data-testid="export-csv"
+          variant="outline"
+          className="ee-btn-label shrink-0"
+          onClick={exportCsv}
+        >
+          <Download size={14} className="md:mr-1" />
+          <span className="hidden md:inline">Export CSV</span>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -121,14 +117,14 @@ export default function Analytics() {
       </div>
 
       {/* Trend chart */}
-      <section className="bg-white border border-[var(--ee-border)] rounded-md p-5 mt-6">
+      <section className="min-w-0 bg-white border border-[var(--ee-border)] rounded-md p-4 sm:p-5 mt-6">
         <h2 className="ee-section-header text-base mb-3">Sales Trend · Daily</h2>
-        <div className="h-64">
+        <div className="ee-chart">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trendData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+            <LineChart data={trendData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} interval="preserveStartEnd" minTickGap={8} />
+              <YAxis width={48} tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)} />
               <Tooltip formatter={(v) => fmtMoney(v)} contentStyle={{ fontSize: 12 }} />
               <Line type="monotone" dataKey="amount" stroke="#8B1F6B" strokeWidth={2.5} dot={{ r: 3, fill: "#8B1F6B" }} />
             </LineChart>
@@ -137,14 +133,14 @@ export default function Analytics() {
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
-        <section className="bg-white border border-[var(--ee-border)] rounded-md p-5">
+        <section className="min-w-0 bg-white border border-[var(--ee-border)] rounded-md p-4 sm:p-5">
           <h2 className="ee-section-header text-base mb-3">Revenue by Category</h2>
-          <div className="h-64">
+          <div className="ee-chart">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data?.revenue_by_category || []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+              <BarChart data={data?.revenue_by_category || []} margin={{ top: 12, right: 12, bottom: 28, left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <XAxis dataKey="category" tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
+                <XAxis dataKey="category" tick={{ fontSize: 9, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} interval={0} angle={-35} textAnchor="end" height={52} />
+                <YAxis width={48} tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)} />
                 <Tooltip formatter={(v) => fmtMoney(v)} contentStyle={{ fontSize: 12 }} />
                 <Bar dataKey="amount" radius={[4, 4, 0, 0]}>
                   {(data?.revenue_by_category || []).map((_, i) => (
@@ -156,14 +152,14 @@ export default function Analytics() {
           </div>
         </section>
 
-        <section className="bg-white border border-[var(--ee-border)] rounded-md p-5">
+        <section className="min-w-0 bg-white border border-[var(--ee-border)] rounded-md p-4 sm:p-5">
           <h2 className="ee-section-header text-base mb-3">Active Items by Category</h2>
-          <div className="h-64">
+          <div className="ee-chart">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data?.active_by_category || []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+              <BarChart data={data?.active_by_category || []} margin={{ top: 12, right: 12, bottom: 28, left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <XAxis dataKey="category" tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
+                <XAxis dataKey="category" tick={{ fontSize: 9, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} interval={0} angle={-35} textAnchor="end" height={52} />
+                <YAxis width={48} tick={{ fontSize: 10, fill: "#888" }} axisLine={{ stroke: "#ddd" }} tickLine={false} />
                 <Tooltip contentStyle={{ fontSize: 12 }} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                   {(data?.active_by_category || []).map((_, i) => (
