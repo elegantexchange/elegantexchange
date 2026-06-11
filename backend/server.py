@@ -21,6 +21,7 @@ from routes.payouts import router as payouts_router
 from routes.analytics import router as analytics_router
 from routes.dashboard import router as dashboard_router
 from routes.square_routes import router as square_router
+from routes.admin import router as admin_router
 from seed import seed_admin, seed_demo
 
 
@@ -116,6 +117,7 @@ for r in (
     analytics_router,
     dashboard_router,
     square_router,
+    admin_router,
 ):
     app.include_router(r)
 

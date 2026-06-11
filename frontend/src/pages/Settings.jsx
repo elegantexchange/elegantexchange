@@ -66,6 +66,22 @@ export default function Settings() {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
     }
   };
+  const resetBoutiqueData = async () => {
+    if (
+      !window.confirm(
+        "Delete all consignors, inventory, sales, and payouts? User accounts and Square connection are kept."
+      )
+    ) {
+      return;
+    }
+    try {
+      const { data } = await api.post("/admin/reset-boutique-data");
+      const total = Object.values(data.deleted || {}).reduce((a, n) => a + n, 0);
+      toast.success(`Boutique data cleared (${total} records removed)`);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    }
+  };
 
   return (
     <div className="px-6 md:px-10 py-8 max-w-5xl">
@@ -114,6 +130,22 @@ export default function Settings() {
             <LinkIcon size={14} className="mr-1" /> Connect Square
           </Button>
         )}
+      </section>
+
+      <section className="bg-white border border-[var(--ee-border)] rounded-md p-6 mb-6">
+        <h2 className="ee-section-header text-base mb-1">Boutique Data</h2>
+        <p className="text-sm text-neutral-500 font-light mb-4">
+          Remove all consignors, inventory, sales, and payouts for a fresh start.
+          Login accounts and Square connection are not affected.
+        </p>
+        <Button
+          variant="outline"
+          onClick={resetBoutiqueData}
+          className="ee-btn-label border-red-300 text-red-700 hover:bg-red-50"
+          data-testid="settings-reset-boutique-btn"
+        >
+          <Trash2 size={14} className="mr-1" /> Clear Boutique Data
+        </Button>
       </section>
 
       <section className="bg-white border border-[var(--ee-border)] rounded-md p-6">
