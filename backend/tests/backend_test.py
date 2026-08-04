@@ -190,6 +190,149 @@ class TestConsignors:
             assert (d2 - d1).days == 60
         TestConsignors._test_item_id = items[0].get("item_id")
 
+    def test_import_template(self, api, owner_h):
+        r = api.get(f"{BASE_URL}/api/consignors/import/template", headers=owner_h)
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("Content-Type", "")
+        assert "id,name,email,phone_number,expired_items" in r.text
+
+    def test_import_csv_ids_flags_and_duplicates(self, api, owner_h):
+        stamp = str(int(dt.datetime.utcnow().timestamp()))[-6:]
+        id_complete = f"9{stamp[:3]}"
+        id_only = f"8{stamp[:3]}"
+        id_partial = f"7{stamp[:3]}"
+        id_dup = f"6{stamp[:3]}"
+        dup_email = f"import_dup_{stamp}@example.com"
+
+        create = api.post(
+            f"{BASE_URL}/api/consignors",
+            headers=owner_h,
+            json={
+                "full_name": "Import Dup Existing",
+                "email": dup_email,
+                "phone": "555-0199",
+                "payout_method": "Cash",
+                "consignor_id": id_dup,
+            },
+        )
+        assert create.status_code in (200, 201), create.text
+
+        csv_body = (
+            "id,name,email,phone_number,expired_items,date_of_drop_off,extra_notes\n"
+            f"{id_complete},Fresh Import,fresh_{stamp}@example.com,555-0111,donate,03/15/2026,Venmo @fresh\n"
+            f"{id_only},,,,pick-up,,\n"
+            f"{id_partial},Sam Partial,,,1/4,,\n"
+            f"{id_dup},Dup By Id,other_{stamp}@example.com,555-0222,donate,2026-01-01,\n"
+            f"5{stamp[:3]},Dup Email,{dup_email},555-0333,donate,2026-01-02,\n"
+            ",,,,,,\n"
+        )
+        files = {"file": ("consignors.csv", csv_body, "text/csv")}
+        headers = {k: v for k, v in owner_h.items()}
+        r = requests.post(
+            f"{BASE_URL}/api/consignors/import",
+            headers=headers,
+            files=files,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["created"] == 3, d
+        assert d["skipped"] == 2, d
+        assert d["flagged"] >= 2, d
+        assert id_complete in d["created_ids"]
+        assert id_only in d["created_ids"]
+        assert id_partial in d["created_ids"]
+
+        flagged_by_id = {f["consignor_id"]: set(f["flags"]) for f in d["flagged_rows"]}
+        assert "missing_name" in flagged_by_id[id_only]
+        assert "missing_contact" in flagged_by_id[id_only]
+        assert "missing_drop_off_date" in flagged_by_id[id_only]
+        assert "missing_contact" in flagged_by_id[id_partial]
+        assert "missing_drop_off_date" in flagged_by_id[id_partial]
+
+        detail = api.get(
+            f"{BASE_URL}/api/consignors/{id_complete}", headers=owner_h
+        ).json()
+        assert detail["expiry_action"] == "donate"
+        assert detail["date_of_drop_off"] == "2026-03-15"
+        assert detail["payout_method"] == "Venmo"
+
+
+# ---------- Inventory CSV import ----------
+class TestInventoryImport:
+    def test_import_template(self, api, owner_h):
+        r = api.get(f"{BASE_URL}/api/inventory/import/template", headers=owner_h)
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("Content-Type", "")
+        assert "ID,text ID,style/description,rack" in r.text
+
+    def test_import_syncs_consignors_and_flags(self, api, owner_h):
+        stamp = str(int(dt.datetime.utcnow().timestamp()))[-6:]
+        existing_id = f"3{stamp[:3]}"
+        unknown_id = f"4{stamp[:3]}"
+        existing_name = f"Inv Sync {stamp}"
+
+        create = api.post(
+            f"{BASE_URL}/api/consignors",
+            headers=owner_h,
+            json={
+                "full_name": existing_name,
+                "email": f"inv_sync_{stamp}@example.com",
+                "phone": "555-0444",
+                "payout_method": "Cash",
+                "consignor_id": existing_id,
+            },
+        )
+        assert create.status_code in (200, 201), create.text
+
+        # Notion-style inventory export columns
+        csv_body = (
+            "ID,text ID,style/description,rack,date,color,size,price,files and media\n"
+            f"{existing_id},SKU-1,Silk blouse,gold rack (1),03/15/2026,cream,M,$45.00,\n"
+            f"{existing_id},,Incomplete coat,gold rack (1),,,,,\n"
+            f"{unknown_id},,Leather bag,accessories,2026-04-01,black,OS,90,\n"
+            f"{existing_id},,Name-matched scarf,accessories,2026-04-02,pink,OS,25,\n"
+            ",,Orphan item,gold rack (1),2026-04-03,red,S,10,\n"
+            ",,,,,,,,\n"
+        )
+        files = {"file": ("inventory.csv", csv_body, "text/csv")}
+        headers = {k: v for k, v in owner_h.items()}
+        r = requests.post(
+            f"{BASE_URL}/api/inventory/import",
+            headers=headers,
+            files=files,
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["created"] == 4, d
+        assert d["consignors_created"] == 1, d
+        assert unknown_id in d["created_consignor_ids"]
+        assert d["flagged"] >= 1, d
+        assert len(d["errors"]) == 1, d
+        assert "missing consignor" in d["errors"][0]["reason"]
+
+        # Existing consignor got items; stub consignor was created
+        existing = api.get(
+            f"{BASE_URL}/api/consignors/{existing_id}", headers=owner_h
+        ).json()
+        existing_items = existing.get("items") or []
+        assert len(existing_items) >= 3
+
+        stub = api.get(
+            f"{BASE_URL}/api/consignors/{unknown_id}", headers=owner_h
+        ).json()
+        assert "(Name needed" in stub["full_name"] or stub["full_name"]
+        assert stub.get("needs_review") is True
+
+        inv = api.get(f"{BASE_URL}/api/inventory", headers=owner_h).json()
+        linked = [i for i in inv if i.get("consignor_id") == existing_id]
+        silk = next(i for i in linked if i.get("description") == "Silk blouse")
+        assert silk.get("rack") == "gold rack (1)"
+        assert silk.get("color") == "cream"
+        assert silk.get("text_id") == "SKU-1"
+        assert any(i.get("description") == "Name-matched scarf" for i in linked)
+        bag = next(i for i in inv if i.get("consignor_id") == unknown_id)
+        assert bag.get("category") == "Accessories"  # inferred from rack
+
 
 # ---------- Sales ----------
 class TestSales:

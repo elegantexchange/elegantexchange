@@ -11,8 +11,15 @@ import {
 } from "@/components/ui/tabs";
 import StatusPill from "@/components/StatusPill";
 import IntakeDialog from "@/components/IntakeDialog";
-import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin, Download } from "lucide-react";
+import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin, Download, Flag } from "lucide-react";
 import { toast } from "sonner";
+
+const FLAG_LABELS = {
+  missing_name: "Missing name",
+  missing_contact: "Missing contact",
+  missing_drop_off_date: "No drop-off date",
+  unparsed_drop_off_date: "Unparsed drop-off date",
+};
 
 export default function ConsignorDetail() {
   const { id } = useParams();
@@ -89,7 +96,48 @@ export default function ConsignorDetail() {
               </div>
               <div>{data.payout_details || "—"}</div>
             </div>
+            <div>
+              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                Expired items
+              </div>
+              <div>{data.expiry_action || "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                Drop-off date
+              </div>
+              <div>
+                {data.date_of_drop_off
+                  ? data.date_of_drop_off.length === 10
+                    ? fmtDate(data.date_of_drop_off)
+                    : data.date_of_drop_off
+                  : "—"}
+              </div>
+            </div>
+            {data.notes ? (
+              <div className="sm:col-span-2">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                  Notes
+                </div>
+                <div className="font-light whitespace-pre-wrap">{data.notes}</div>
+              </div>
+            ) : null}
           </div>
+          {(data.import_flags || []).length > 0 && (
+            <div
+              data-testid="consignor-flags"
+              className="mt-4 border border-amber-200 bg-amber-50 rounded-md p-3"
+            >
+              <div className="text-[10px] tracking-[0.18em] uppercase text-amber-800 font-semibold inline-flex items-center gap-1 mb-2">
+                <Flag size={11} /> Needs review
+              </div>
+              <ul className="text-sm text-amber-900 space-y-1">
+                {data.import_flags.map((f) => (
+                  <li key={f}>{FLAG_LABELS[f] || f}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
         <section className="bg-white border border-[var(--ee-magenta)] rounded-md p-5" style={{ borderWidth: 1.5 }}>
           <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold">

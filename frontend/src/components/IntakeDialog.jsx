@@ -16,10 +16,11 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Trash2, Printer, ChevronRight, ChevronLeft, Eraser, CheckCircle2 } from "lucide-react";
+import { Camera, Plus, Trash2, Printer, ChevronRight, ChevronLeft, Eraser, CheckCircle2 } from "lucide-react";
 import { CATEGORIES, CONDITIONS, PAYOUT_METHODS, STORE } from "@/lib/brand";
 import SignaturePad from "@/components/SignaturePad";
 import { buildAgreementText } from "@/lib/agreement";
+import ItemScanDialog from "@/components/ItemScanDialog";
 
 const blankItem = () => ({
   description: "",
@@ -27,6 +28,10 @@ const blankItem = () => ({
   size: "",
   condition: "Excellent",
   asking_price: "",
+  color: "",
+  rack: "",
+  text_id: "",
+  date_in: "",
 });
 
 const STEPS = [
@@ -73,6 +78,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
     notes: "",
   });
   const [items, setItems] = useState([blankItem()]);
+  const [scanOpen, setScanOpen] = useState(false);
   const [signedName, setSignedName] = useState("");
   const [sigEmpty, setSigEmpty] = useState(true);
   const sigRef = useRef(null);
@@ -220,8 +226,47 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           />
         )}
         {step === 1 && (
-          <StepItems items={items} setItem={setItem} setItems={setItems} />
+          <StepItems
+            items={items}
+            setItem={setItem}
+            setItems={setItems}
+            onScan={() => setScanOpen(true)}
+          />
         )}
+        <ItemScanDialog
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          confirmLabel="Add to drop-off"
+          onConfirm={(draft) => {
+            const row = {
+              ...blankItem(),
+              description: draft.description || "",
+              category: draft.category || "Other",
+              size: draft.size || "",
+              condition: draft.condition || "Excellent",
+              asking_price: draft.asking_price || "",
+              color: draft.color || "",
+              rack: draft.rack || "",
+              text_id: draft.text_id || "",
+              date_in: draft.date_in || "",
+            };
+            const isPlaceholder =
+              items.length === 1 &&
+              !items[0].description.trim() &&
+              !items[0].asking_price;
+            setItems(isPlaceholder ? [row] : [...items, row]);
+            if (
+              mode === "existing" &&
+              draft.consignor_id &&
+              !consignorId &&
+              consignors.some((c) => c.consignor_id === draft.consignor_id)
+            ) {
+              setConsignorId(draft.consignor_id);
+            }
+            setScanOpen(false);
+            toast.success("Scanned item added — review before continuing");
+          }}
+        />
         {step === 2 && (
           <StepAgreement
             consignorName={consignorDisplayName || newConsignor.full_name}
@@ -406,7 +451,7 @@ function StepConsignor({
   );
 }
 
-function StepItems({ items, setItem, setItems }) {
+function StepItems({ items, setItem, setItems, onScan }) {
   return (
     <div>
       <div className="border border-[var(--ee-border)] rounded-md overflow-hidden">
@@ -509,13 +554,24 @@ function StepItems({ items, setItem, setItems }) {
             </tbody>
           </table>
         </div>
-        <button
-          data-testid="intake-add-item"
-          onClick={() => setItems([...items, blankItem()])}
-          className="ee-btn-label text-[var(--ee-magenta)] px-3 py-2 hover:bg-[var(--ee-magenta-soft)] w-full text-left border-t border-[var(--ee-border)]"
-        >
-          <Plus size={12} className="inline mr-1" /> Add another item
-        </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 border-t border-[var(--ee-border)]">
+          <button
+            type="button"
+            data-testid="intake-scan-item"
+            onClick={onScan}
+            className="ee-btn-label text-[var(--ee-magenta)] px-3 py-2 hover:bg-[var(--ee-magenta-soft)] text-left sm:border-r border-[var(--ee-border)]"
+          >
+            <Camera size={12} className="inline mr-1" /> Scan item
+          </button>
+          <button
+            type="button"
+            data-testid="intake-add-item"
+            onClick={() => setItems([...items, blankItem()])}
+            className="ee-btn-label text-[var(--ee-magenta)] px-3 py-2 hover:bg-[var(--ee-magenta-soft)] text-left border-t sm:border-t-0 border-[var(--ee-border)]"
+          >
+            <Plus size={12} className="inline mr-1" /> Add another item
+          </button>
+        </div>
       </div>
     </div>
   );
