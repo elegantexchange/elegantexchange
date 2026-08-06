@@ -18,8 +18,8 @@ if not BASE_URL:
     except Exception:
         pass
 
-OWNER_EMAIL = "info@elegantexchange.co"
-OWNER_PASSWORD = "ElegantExchange2026!"
+OWNER_EMAIL = os.environ.get("ADMIN_EMAIL", "shop@elegantexchange.co")
+OWNER_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ElegantExchange2026!")
 STAFF_EMAIL = "staff@elegantexchange.co"
 STAFF_PASSWORD = "Staff2026!"
 
@@ -75,13 +75,13 @@ class TestAuth:
         assert r.status_code == 200
         d = r.json()
         assert "token" in d and "user" in d
-        assert d["user"]["role"] == "owner"
+        assert d["user"]["role"] == "admin"
         assert d["user"]["email"] == OWNER_EMAIL
 
     def test_staff_login(self, api):
         r = _login(api, STAFF_EMAIL, STAFF_PASSWORD)
         assert r.status_code == 200
-        assert r.json()["user"]["role"] == "staff"
+        assert r.json()["user"]["role"] == "retail"
 
     def test_invalid_login(self, api):
         r = _login(api, OWNER_EMAIL, "badpw")
@@ -104,7 +104,7 @@ class TestRBAC:
         r = api.post(
             f"{BASE_URL}/api/payouts",
             headers=staff_h,
-            json={"consignor_id": "EE-001", "amount": 1, "method": "Cash"},
+            json={"consignor_id": "2001", "amount": 1, "method": "Cash"},
         )
         assert r.status_code == 403, r.text
 
@@ -144,7 +144,7 @@ class TestConsignors:
         assert "active_items" in sample and "total_owed" in sample
 
     def test_get_ee_001(self, api, owner_h):
-        r = api.get(f"{BASE_URL}/api/consignors/EE-001", headers=owner_h)
+        r = api.get(f"{BASE_URL}/api/consignors/2001", headers=owner_h)
         assert r.status_code == 200, r.text
         d = r.json()
         for k in ("items", "sales", "payouts"):
@@ -161,12 +161,12 @@ class TestConsignors:
         assert r.status_code in (200, 201), r.text
         d = r.json()
         cid = d.get("consignor_id") or d.get("id")
-        assert cid and cid.startswith("EE-"), f"bad id: {d}"
+        assert cid and cid.isdigit() and len(cid) == 4 and cid.startswith("2"), f"bad id: {d}"
         # store on class for next test
         TestConsignors._new_id = cid
 
     def test_inventory_batch_create(self, api, owner_h):
-        cid = getattr(TestConsignors, "_new_id", "EE-001")
+        cid = getattr(TestConsignors, "_new_id", "2001")
         payload = {
             "consignor_id": cid,
             "items": [
@@ -181,7 +181,7 @@ class TestConsignors:
         assert len(items) == 2
         for it in items:
             iid = it.get("item_id")
-            assert iid and iid.startswith("EE-") and len(iid) == 7 and iid[3:].isdigit(), iid
+            assert iid and str(iid).startswith(f"{cid}-"), iid
             pe = it.get("period_end")
             di = it.get("date_in")
             assert pe and di, it

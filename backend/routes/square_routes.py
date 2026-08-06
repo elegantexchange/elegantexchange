@@ -6,7 +6,8 @@ from datetime import datetime, timezone, date
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from auth import get_current_user, require_owner
+from auth import get_current_user, require_roles
+from boutique_settings import resolve_consignor_split_pct, split_sale_amount
 
 router = APIRouter(prefix="/api/square", tags=["square"])
 
@@ -38,7 +39,7 @@ def _square_configured() -> bool:
 
 
 @router.get("/status")
-async def status(request: Request, _u: dict = Depends(get_current_user)):
+async def status(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     db = request.app.state.db
     doc = await db.square_connection.find_one({"_id": "default"}, {"_id": 0})
     return {
@@ -56,8 +57,9 @@ async def connect(request: Request):
     """Redirect to Square OAuth authorize URL.
     Note: this is called from a browser <a> tag; auth is checked via cookie.
     """
-    # Make sure user is authenticated (will raise 401 if not)
-    await get_current_user(request)
+    user = await get_current_user(request)
+    if (user.get("role") or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Requires one of: admin")
 
     if not _square_configured():
         raise HTTPException(status_code=400, detail="Square is not configured. Add credentials in Settings.")
@@ -124,7 +126,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
 
 @router.post("/disconnect")
-async def disconnect(request: Request, _o: dict = Depends(require_owner)):
+async def disconnect(request: Request, _o: dict = Depends(require_roles("admin"))):
     db = request.app.state.db
     doc = await db.square_connection.find_one({"_id": "default"})
     if not doc:
@@ -151,7 +153,7 @@ async def disconnect(request: Request, _o: dict = Depends(require_owner)):
 
 
 @router.post("/sync")
-async def sync(request: Request, _u: dict = Depends(get_current_user)):
+async def sync(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     """Pull recent payments from Square and attempt to match by SKU/note to inventory."""
     db = request.app.state.db
     doc = await db.square_connection.find_one({"_id": "default"})
@@ -183,15 +185,28 @@ async def sync(request: Request, _u: dict = Depends(get_current_user)):
             existing_log = await db.square_sync_log.find_one({"transaction_id": tx_id})
             if existing_log and existing_log.get("status") == "matched":
                 continue
-            # Try to match by EE-### in note
+            # Match boutique item ids: 2001-01, bare consignor 2001, or legacy EE-####
             matched_item_id = None
             import re
-            m = re.search(r"EE-\d{4}", note)
-            if m:
-                candidate = m.group(0)
-                item = await db.inventory.find_one({"item_id": candidate})
+            candidates = re.findall(r"(?:EE-)?\d{4}(?:-\d{2})?", note)
+            for candidate in candidates:
+                bare = candidate.replace("EE-", "")
+                item = await db.inventory.find_one(
+                    {
+                        "item_id": {
+                            "$in": [bare, candidate, f"EE-{bare.split('-')[0]}"]
+                        }
+                    }
+                )
+                if not item and "-" not in bare:
+                    # Note only has consignor id — match an active item for that consignor
+                    item = await db.inventory.find_one(
+                        {"consignor_id": bare, "status": "Active"},
+                        sort=[("date_in", -1)],
+                    )
                 if item:
-                    matched_item_id = candidate
+                    matched_item_id = item["item_id"]
+                    break
             if matched_item_id:
                 # Check if a sale already exists for this txn
                 existing_sale = await db.sales.find_one(
@@ -202,8 +217,13 @@ async def sync(request: Request, _u: dict = Depends(get_current_user)):
                     if item:
                         import uuid
                         sale_price = float(amount)
-                        store_cut = round(sale_price * 0.5, 2)
-                        consignor_cut = round(sale_price - store_cut, 2)
+                        consignor = await db.consignors.find_one(
+                            {"consignor_id": item["consignor_id"]}, {"_id": 0}
+                        )
+                        split_pct = resolve_consignor_split_pct(item, consignor)
+                        store_cut, consignor_cut = split_sale_amount(
+                            sale_price, split_pct
+                        )
                         sale_date = (
                             (p.get("created_at") or "")[:10]
                             or date.today().isoformat()
@@ -216,6 +236,7 @@ async def sync(request: Request, _u: dict = Depends(get_current_user)):
                             "sale_price": sale_price,
                             "store_cut": store_cut,
                             "consignor_cut": consignor_cut,
+                            "consignor_split_pct": split_pct,
                             "square_transaction_id": tx_id,
                             "payout_status": "Pending",
                             "payout_date": None,
@@ -273,7 +294,7 @@ async def sync(request: Request, _u: dict = Depends(get_current_user)):
 
 
 @router.get("/unmatched")
-async def unmatched(request: Request, _u: dict = Depends(get_current_user)):
+async def unmatched(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     db = request.app.state.db
     rows = await db.square_sync_log.find(
         {"status": "unmatched"}, {"_id": 0}
@@ -283,7 +304,9 @@ async def unmatched(request: Request, _u: dict = Depends(get_current_user)):
 
 @router.post("/unmatched/{transaction_id}/dismiss")
 async def dismiss_unmatched(
-    transaction_id: str, request: Request, _u: dict = Depends(get_current_user)
+    transaction_id: str,
+    request: Request,
+    _u: dict = Depends(require_roles("admin", "manager")),
 ):
     db = request.app.state.db
     await db.square_sync_log.update_one(

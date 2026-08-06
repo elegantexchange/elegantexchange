@@ -66,6 +66,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [consignors, setConsignors] = useState([]);
+  const [consignorSplitPct, setConsignorSplitPct] = useState(50);
   const [mode, setMode] = useState(presetMode || "existing"); // existing | new
   const [consignorId, setConsignorId] = useState(presetConsignorId || "");
   const [newConsignor, setNewConsignor] = useState({
@@ -88,6 +89,11 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
     api.get("/consignors").then((r) => {
       if (!cancelled) setConsignors(r.data);
     });
+    api.get("/settings").then((r) => {
+      if (!cancelled && r.data?.consignor_split_pct != null) {
+        setConsignorSplitPct(Number(r.data.consignor_split_pct));
+      }
+    }).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -146,6 +152,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
       const agreementText = buildAgreementText({
         consignorName: consignorDisplayName || newConsignor.full_name,
         consignorId: cid,
+        consignorSplitPct,
       });
       await api.post(`/consignors/${cid}/agreement`, {
         signature_data_url: sigData,
@@ -271,6 +278,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           <StepAgreement
             consignorName={consignorDisplayName || newConsignor.full_name}
             consignorId={consignorDisplayId}
+            consignorSplitPct={consignorSplitPct}
             signedName={signedName}
             setSignedName={setSignedName}
             sigRef={sigRef}
@@ -580,6 +588,7 @@ function StepItems({ items, setItem, setItems, onScan }) {
 function StepAgreement({
   consignorName,
   consignorId,
+  consignorSplitPct = 50,
   signedName,
   setSignedName,
   sigRef,
@@ -588,8 +597,8 @@ function StepAgreement({
   items,
 }) {
   const agreementText = useMemo(
-    () => buildAgreementText({ consignorName, consignorId }),
-    [consignorName, consignorId]
+    () => buildAgreementText({ consignorName, consignorId, consignorSplitPct }),
+    [consignorName, consignorId, consignorSplitPct]
   );
   const today = new Date();
   return (

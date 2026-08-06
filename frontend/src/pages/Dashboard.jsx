@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { api, fmtMoney, fmtDate, fmtDateTime } from "@/lib/api";
-import PageHeader from "@/components/PageHeader";
-import StatCard from "@/components/StatCard";
 import { Button } from "@/components/ui/button";
-import { Plus, Receipt, Users, AlertTriangle, Clock, TrendingDown } from "lucide-react";
+import {
+  Plus,
+  Receipt,
+  Users,
+  AlertTriangle,
+  Clock,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import {
   LineChart,
   Line,
@@ -15,6 +22,28 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+
+const ease = [0.22, 1, 0.36, 1];
+const panel =
+  "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 14 },
+  show: (i = 0) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.06, duration: 0.55, ease },
+  }),
+};
+
+function startOfWeekIso() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0 Sun … 6 Sat
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + mondayOffset);
+  return d.toISOString();
+}
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
@@ -36,86 +65,195 @@ export default function Dashboard() {
     }));
   }, [data]);
 
+  const weekActivity = useMemo(() => {
+    const start = startOfWeekIso();
+    return (data?.activity || []).filter((a) => {
+      if (!a?.ts) return false;
+      return a.ts >= start || a.ts.slice(0, 10) >= start.slice(0, 10);
+    });
+  }, [data]);
+
+  const salesDelta = useMemo(() => {
+    if (!data?.trend?.this?.length) return null;
+    const days = data.trend.this;
+    const todayAmt = data.sales_today ?? 0;
+    const yesterdayAmt = days.length >= 2 ? days[days.length - 2].amount : 0;
+    if (yesterdayAmt <= 0) return todayAmt > 0 ? 100 : null;
+    return ((todayAmt - yesterdayAmt) / yesterdayAmt) * 100;
+  }, [data]);
+
   const alertCount =
     (data?.alerts.expiring_soon?.length || 0) +
     (data?.alerts.expired?.length || 0) +
     (data?.alerts.stale_balances?.length || 0);
 
-  return (
-    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8">
-      <PageHeader
-        title="Home"
-        subtitle="Today at the boutique."
-        testid="dashboard-title"
-        actions={
-          <>
-            <Button
-              data-testid="quick-new-intake"
-              variant="outline"
-              className="ee-btn-label"
-              onClick={() => nav("/consignors?intake=1")}
-            >
-              <Plus size={14} className="md:mr-1" />
-              <span className="hidden md:inline">New Intake</span>
-            </Button>
-            <Button
-              data-testid="quick-log-sale"
-              variant="outline"
-              className="ee-btn-label"
-              onClick={() => nav("/sales?new=1")}
-            >
-              <Receipt size={14} className="md:mr-1" />
-              <span className="hidden md:inline">Log Sale</span>
-            </Button>
-            <Button
-              data-testid="quick-add-consignor"
-              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-              onClick={() => nav("/consignors?new=1")}
-            >
-              <Users size={14} className="md:mr-1" />
-              <span className="hidden md:inline">Add Consignor</span>
-            </Button>
-          </>
-        }
-      />
+  const secondaryStats = [
+    {
+      label: "Active items",
+      value: data?.active_items ?? "—",
+      sub: "On the floor",
+      testid: "stat-active-items",
+    },
+    {
+      label: "Payouts owed",
+      value: fmtMoney(data?.payouts_owed),
+      sub: "Pending balances",
+      testid: "stat-payouts-owed",
+      accent: true,
+    },
+    {
+      label: "Consignors",
+      value: data?.total_consignors ?? "—",
+      sub: "Active relationships",
+      testid: "stat-total-consignors",
+    },
+  ];
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Sales Today"
-          value={fmtMoney(data?.sales_today)}
-          sub="Logged via Square + manual"
-          accent
-          testid="stat-sales-today"
-        />
-        <StatCard
-          label="Active Items"
-          value={data?.active_items ?? "—"}
-          sub="On the floor right now"
-          testid="stat-active-items"
-        />
-        <StatCard
-          label="Payouts Owed"
-          value={fmtMoney(data?.payouts_owed)}
-          sub="Pending consignor balances"
-          accent
-          testid="stat-payouts-owed"
-        />
-        <StatCard
-          label="Total Consignors"
-          value={data?.total_consignors ?? "—"}
-          sub="Active relationships"
-          testid="stat-total-consignors"
-        />
+  return (
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5 md:space-y-6">
+      <h1 data-testid="dashboard-title" className="sr-only">
+        Home
+      </h1>
+
+      {/* Hero — sales today */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.985 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.65, ease }}
+        className={`${panel} p-6 sm:p-8`}
+      >
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <div>
+            <div className="text-[10px] tracking-[0.22em] uppercase text-neutral-500 font-semibold">
+              Sales today
+            </div>
+            <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+              <motion.div
+                data-testid="stat-sales-today"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.12, duration: 0.6, ease }}
+                className="text-5xl sm:text-6xl font-bold tracking-tight text-[var(--ee-magenta)] tabular-nums"
+              >
+                {data ? fmtMoney(data.sales_today) : "—"}
+              </motion.div>
+              {salesDelta != null && (
+                <motion.span
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.28, duration: 0.45 }}
+                  className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-0.5 rounded-md border ${
+                    salesDelta >= 0
+                      ? "text-emerald-700 bg-emerald-50 border-emerald-100"
+                      : "text-rose-700 bg-rose-50 border-rose-100"
+                  }`}
+                >
+                  {salesDelta >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                  {salesDelta >= 0 ? "+" : ""}
+                  {salesDelta.toFixed(1)}% vs yesterday
+                </motion.span>
+              )}
+            </div>
+            <p className="mt-2 text-sm text-neutral-500">
+              Square + manual · boutique floor
+            </p>
+          </div>
+
+          <div className="ee-page-actions">
+            <motion.div
+              custom={0}
+              variants={fadeUp}
+              initial="hidden"
+              animate="show"
+              whileHover={{ y: -2 }}
+            >
+              <Button
+                data-testid="quick-new-intake"
+                variant="outline"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                onClick={() => nav("/consignors?intake=1")}
+              >
+                <Plus size={14} className="md:mr-1" />
+                <span className="hidden md:inline">New Drop Off</span>
+              </Button>
+            </motion.div>
+            <motion.div
+              custom={1}
+              variants={fadeUp}
+              initial="hidden"
+              animate="show"
+              whileHover={{ y: -2 }}
+            >
+              <Button
+                data-testid="quick-log-sale"
+                variant="outline"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                onClick={() => nav("/sales?new=1")}
+              >
+                <Receipt size={14} className="md:mr-1" />
+                <span className="hidden md:inline">Log Sale</span>
+              </Button>
+            </motion.div>
+            <motion.div
+              custom={2}
+              variants={fadeUp}
+              initial="hidden"
+              animate="show"
+              whileHover={{ y: -2 }}
+            >
+              <Button
+                data-testid="quick-add-consignor"
+                className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                onClick={() => nav("/consignors?new=1")}
+              >
+                <Users size={14} className="md:mr-1" />
+                <span className="hidden md:inline">Add Consignor</span>
+              </Button>
+            </motion.div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Secondary metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {secondaryStats.map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            data-testid={stat.testid}
+            custom={i}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            whileHover={{ y: -3 }}
+            transition={{ type: "spring", stiffness: 380, damping: 26 }}
+            className={`${panel} p-4 sm:p-5`}
+          >
+            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+              {stat.label}
+            </div>
+            <div
+              className={`text-2xl font-bold tracking-tight mt-1.5 tabular-nums ${
+                stat.accent ? "text-[var(--ee-magenta)]" : "text-[var(--ee-ink)]"
+              }`}
+            >
+              {stat.value}
+            </div>
+            <div className="text-xs text-neutral-500 mt-1">{stat.sub}</div>
+          </motion.div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-7">
-        {/* Trend chart */}
-        <section
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        {/* Trend chart — frame sized to chart, not stretched by activity */}
+        <motion.section
           data-testid="trend-chart-card"
-          className="lg:col-span-2 min-w-0 bg-white border border-[var(--ee-border)] rounded-md p-4 sm:p-5"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.65, ease }}
+          className={`${panel} p-3 sm:p-3.5 lg:col-span-2 min-w-0 lg:h-[17rem] flex flex-col`}
         >
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
-            <h2 className="ee-section-header text-base shrink-0">Sales Trend</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2 shrink-0">
+            <h2 className="ee-section-header text-base shrink-0">Sales trend</h2>
             <div className="ee-btn-group">
               {[
                 ["week", "This Week"],
@@ -124,12 +262,13 @@ export default function Dashboard() {
               ].map(([k, label]) => (
                 <button
                   key={k}
+                  type="button"
                   data-testid={`trend-${k}`}
                   onClick={() => setPeriod(k)}
-                  className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-2.5 py-1 rounded border ${
+                  className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-2.5 py-1 rounded-[6px] border transition-colors ${
                     period === k
                       ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-                      : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
+                      : "border-[var(--ee-sidebar-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
                   }`}
                 >
                   {label}
@@ -137,96 +276,116 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-          <div className="ee-chart">
+          <div className="flex-1 min-h-[12rem] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 12, right: 12, bottom: 4, left: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ececec" vertical={false} />
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 10, fill: "#888" }}
-                  axisLine={{ stroke: "#ddd" }}
+                  tick={{ fontSize: 10, fill: "#8a8a8a" }}
+                  axisLine={false}
                   tickLine={false}
                   interval="preserveStartEnd"
                   minTickGap={8}
                 />
                 <YAxis
-                  width={48}
-                  tick={{ fontSize: 10, fill: "#888" }}
-                  axisLine={{ stroke: "#ddd" }}
+                  width={44}
+                  tick={{ fontSize: 10, fill: "#8a8a8a" }}
+                  axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)}
                 />
                 <Tooltip
                   contentStyle={{
                     fontSize: 12,
-                    border: "1px solid #ddd",
-                    borderRadius: 4,
+                    border: "1px solid #e8e8e8",
+                    borderRadius: 8,
+                    background: "#fcfcfc",
                   }}
                   formatter={(v) => fmtMoney(v)}
                 />
                 <Legend
-                  wrapperStyle={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em" }}
+                  wrapperStyle={{
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                  }}
                   iconSize={10}
                 />
                 <Line
                   type="monotone"
                   dataKey="lastPeriod"
                   name="Previous"
-                  stroke="#bbb"
+                  stroke="#c9c9c9"
                   strokeWidth={1.5}
                   strokeDasharray="4 4"
                   dot={false}
+                  isAnimationActive
+                  animationDuration={900}
                 />
                 <Line
                   type="monotone"
                   dataKey="thisPeriod"
                   name="Current"
                   stroke="#8B1F6B"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: "#8B1F6B" }}
+                  strokeWidth={2.4}
+                  dot={{ r: 3, fill: "#8B1F6B", strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive
+                  animationDuration={1100}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </section>
+        </motion.section>
 
-        {/* Activity feed */}
-        <section
+        {/* Activity feed — same height as trend; this week only; scroll without bar */}
+        <motion.section
           data-testid="activity-feed"
-          className="bg-white border border-[var(--ee-border)] rounded-md p-5"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.34, duration: 0.65, ease }}
+          className={`${panel} p-3 sm:p-3.5 flex flex-col min-h-[16rem] lg:h-[17rem]`}
         >
-          <h2 className="ee-section-header text-base mb-3">Recent Activity</h2>
-          <ul className="space-y-3">
-            {(data?.activity || []).map((a, idx) => (
-              <li key={idx} className="flex gap-3 text-sm">
-                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--ee-magenta)] shrink-0" />
+          <h2 className="ee-section-header text-base mb-2 shrink-0">Recent activity</h2>
+          <ul className="ee-scroll-hide flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
+            {weekActivity.map((a, idx) => (
+              <motion.li
+                key={`${a.ts}-${idx}`}
+                custom={idx}
+                variants={fadeUp}
+                initial="hidden"
+                animate="show"
+                className="flex gap-3 text-sm group"
+              >
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--ee-magenta)] shrink-0 transition-transform duration-300 group-hover:scale-125" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] truncate">{a.label}</div>
-                  <div className="text-xs text-neutral-500 font-light truncate">
+                  <div className="text-[11px] text-neutral-500 font-light truncate">
                     {a.sub} · {fmtDateTime(a.ts)}
                   </div>
                 </div>
-              </li>
+              </motion.li>
             ))}
-            {(!data?.activity || data.activity.length === 0) && (
-              <li className="text-sm text-neutral-400 font-light">
-                No recent activity.
-              </li>
+            {weekActivity.length === 0 && (
+              <li className="text-sm text-neutral-400 font-light">No activity this week.</li>
             )}
           </ul>
-        </section>
+        </motion.section>
       </div>
 
       {/* Alerts */}
-      <section
+      <motion.section
         data-testid="alerts-panel"
-        className="ee-alerts-panel mt-6 bg-white border border-[var(--ee-magenta)] rounded-md p-4 sm:p-5 min-w-0"
-        style={{ borderWidth: 1.5 }}
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.42, duration: 0.65, ease }}
+        className={`ee-alerts-panel ${panel} p-4 sm:p-5 min-w-0 border-[var(--ee-magenta)]`}
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4">
           <AlertTriangle size={16} className="text-[var(--ee-magenta)] shrink-0" />
           <h2 className="ee-section-header text-base">
-            Needs Attention
+            Needs attention
             <span className="ml-2 text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)]">
               {alertCount} item{alertCount === 1 ? "" : "s"}
             </span>
@@ -277,7 +436,10 @@ export default function Dashboard() {
             </div>
             <ul className="mt-2.5 space-y-2 text-sm">
               {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
-                <li key={b.consignor_id} className="flex items-baseline justify-between gap-3 min-w-0">
+                <li
+                  key={b.consignor_id}
+                  className="flex items-baseline justify-between gap-3 min-w-0"
+                >
                   <span className="min-w-0 truncate">{b.full_name}</span>
                   <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
                     {fmtMoney(b.balance)}
@@ -290,7 +452,8 @@ export default function Dashboard() {
             </ul>
           </div>
         </div>
-      </section>
+      </motion.section>
+
     </div>
   );
 }

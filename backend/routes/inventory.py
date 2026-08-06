@@ -16,8 +16,9 @@ from models import (
     InventoryItemUpdate,
     ScanAssistResult,
 )
-from auth import get_current_user
+from auth import get_current_user, require_roles
 from id_gen import next_item_id
+from boutique_settings import current_consignor_split_pct
 from csv_import_utils import (
     cell,
     map_headers,
@@ -42,6 +43,8 @@ CATEGORIES = {
     "Other",
 }
 CONDITIONS = {"Excellent", "Like New", "Very Good", "Good", "Fair"}
+MAX_MEDIA = 10
+MAX_DATA_URL_CHARS = 6_000_000  # ~4.5MB binary after base64
 # Matches Notion inventory export: style/description, rack, date, color, size, price, ID, text ID, files and media
 _HEADER_ALIASES = {
     "consignor_id": {
@@ -118,10 +121,37 @@ _HEADER_ALIASES = {
 }
 _TEMPLATE_CSV = (
     "ID,text ID,style/description,rack,date,color,size,price,files and media\n"
-    "2001,EE-BAG-01,Cream textured bag,gold rack (1),2026-06-01,cream,,14.95,\n"
+    "2001,BAG-01,Cream textured bag,gold rack (1),2026-06-01,cream,,14.95,\n"
     "2007,,Pink bag with gold chain,gold rack (1),2026-06-01,pink,,14.95,\n"
     "2016,,,,gold rack (1),,,,\n"
 )
+
+
+def _normalize_media(raw) -> list[str]:
+    """Validate and cap inventory media (https URLs or data:image URLs)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="media must be a list")
+    out: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str):
+            raise HTTPException(status_code=400, detail="Each media entry must be a string")
+        url = entry.strip()
+        if not url:
+            continue
+        if url.startswith("data:image/"):
+            if len(url) > MAX_DATA_URL_CHARS:
+                raise HTTPException(status_code=400, detail="Image is too large")
+        elif not (url.startswith("https://") or url.startswith("http://")):
+            raise HTTPException(
+                status_code=400,
+                detail="Media must be an image URL or uploaded image",
+            )
+        out.append(url)
+        if len(out) >= MAX_MEDIA:
+            break
+    return out
 
 
 def _parse_media(raw: str) -> list[str]:
@@ -246,6 +276,7 @@ async def _ensure_consignor(
     display = name.strip() if len(name.strip()) >= 2 else f"(Name needed · {cid})"
     flags = ["missing_name"] if len(name.strip()) < 2 else []
     flags.append("missing_contact")
+    split_pct = await current_consignor_split_pct(db)
     doc = {
         "id": str(uuid.uuid4()),
         "consignor_id": cid,
@@ -260,6 +291,7 @@ async def _ensure_consignor(
         "date_of_drop_off": "",
         "import_flags": flags,
         "needs_review": True,
+        "consignor_split_pct": split_pct,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.consignors.insert_one(doc)
@@ -308,6 +340,7 @@ async def create_item(
         raise HTTPException(status_code=400, detail="Unknown consignor")
     date_in = body.date_in or _today_iso()
     item_id = await next_item_id(db, body.consignor_id)
+    split_pct = await current_consignor_split_pct(db)
     doc = {
         "id": str(uuid.uuid4()),
         "item_id": item_id,
@@ -325,7 +358,8 @@ async def create_item(
         "rack": body.rack or "",
         "color": body.color or "",
         "text_id": body.text_id or "",
-        "media": list(body.media or []),
+        "media": _normalize_media(body.media or []),
+        "consignor_split_pct": split_pct,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.inventory.insert_one(doc)
@@ -345,6 +379,7 @@ async def create_items_batch(
     if not consignor:
         raise HTTPException(status_code=400, detail="Unknown consignor")
     created = []
+    split_pct = await current_consignor_split_pct(db)
     for raw in items_in:
         date_in = raw.get("date_in") or _today_iso()
         item_id = await next_item_id(db, consignor_id)
@@ -366,6 +401,7 @@ async def create_items_batch(
             "color": raw.get("color", "") or "",
             "text_id": raw.get("text_id", "") or "",
             "media": list(raw.get("media") or []),
+            "consignor_split_pct": split_pct,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.inventory.insert_one(doc)
@@ -572,6 +608,7 @@ async def import_inventory(
             flags = [f for f in flags if f != "missing_category"]
 
         item_id = await next_item_id(db, consignor_id)
+        split_pct = await current_consignor_split_pct(db)
         doc = {
             "id": str(uuid.uuid4()),
             "item_id": item_id,
@@ -593,6 +630,7 @@ async def import_inventory(
             "notes": notes,
             "import_flags": flags,
             "needs_review": bool(flags),
+            "consignor_split_pct": split_pct,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.inventory.insert_one(doc)
@@ -642,14 +680,27 @@ async def update_item(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         return {"ok": True}
+    if "media" in updates:
+        updates["media"] = _normalize_media(updates["media"])
     if "import_flags" in updates:
         updates["needs_review"] = bool(updates["import_flags"])
+    existing = await db.inventory.find_one({"item_id": item_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Not found")
     await db.inventory.update_one({"item_id": item_id}, {"$set": updates})
-    return {"ok": True}
+    existing.update(updates)
+    existing.setdefault("import_flags", [])
+    existing.setdefault("needs_review", bool(existing.get("import_flags")))
+    existing.setdefault("media", [])
+    return existing
 
 
 @router.delete("/{item_id}")
-async def delete_item(item_id: str, request: Request, _u: dict = Depends(get_current_user)):
+async def delete_item(
+    item_id: str,
+    request: Request,
+    _u: dict = Depends(require_roles("admin", "manager")),
+):
     db = request.app.state.db
     sale = await db.sales.find_one({"item_id": item_id})
     if sale:

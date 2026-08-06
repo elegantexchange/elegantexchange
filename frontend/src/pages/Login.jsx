@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LOGO_URL, STORE } from "@/lib/brand";
 import { formatApiError, isBackendConfigured } from "@/lib/api";
+import { needsOnboarding } from "@/lib/auth";
 import { Loader2 } from "lucide-react";
 
 export default function Login() {
@@ -17,7 +18,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user) nav("/", { replace: true });
+    if (!user) return;
+    nav(needsOnboarding(user) ? "/onboarding" : "/", { replace: true });
   }, [user, nav]);
 
   const onSubmit = async (e) => {
@@ -25,8 +27,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      nav("/", { replace: true });
+      const u = await login(email, password);
+      nav(needsOnboarding(u) ? "/onboarding" : "/", { replace: true });
     } catch (e) {
       if (!isBackendConfigured) {
         setError(
@@ -45,7 +47,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-12 bg-[var(--ee-bg)]">
+    <div className="min-h-screen flex items-center justify-center px-6 py-12 bg-[var(--ee-panel)]">
       <form
         onSubmit={onSubmit}
         className="w-full max-w-sm"
@@ -109,9 +111,6 @@ export default function Login() {
               "Sign In"
             )}
           </Button>
-        </div>
-        <div className="text-center mt-10 text-[10px] tracking-[0.28em] uppercase text-[var(--ee-magenta)] font-semibold">
-          For Internal Use Only
         </div>
       </form>
     </div>

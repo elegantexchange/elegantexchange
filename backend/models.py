@@ -9,11 +9,20 @@ def now_iso() -> str:
 
 
 # ----- Users -----
+RoleLiteral = Literal["admin", "manager", "retail"]
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
-    role: Literal["owner", "staff"] = "staff"
+    role: RoleLiteral = "retail"
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[RoleLiteral] = None
+    phone: Optional[str] = None
 
 
 class UserOut(BaseModel):
@@ -22,11 +31,27 @@ class UserOut(BaseModel):
     email: str
     name: str
     role: str
+    phone: str = ""
+    must_change_password: bool = False
+    onboarding_completed_at: Optional[str] = None
+    product_tour_completed_at: Optional[str] = None
 
 
 class LoginReq(BaseModel):
     email: EmailStr
     password: str
+
+
+class OnboardingReq(BaseModel):
+    password: str
+    name: str
+    phone: Optional[str] = ""
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
 
 
 # ----- Consignors -----

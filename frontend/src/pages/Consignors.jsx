@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import { api, fmtMoney, formatApiError } from "@/lib/api";
-import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Download, Flag, Plus, Search, Upload } from "lucide-react";
+import { Download, Flag, Mail, Phone, Plus, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import IntakeDialog from "@/components/IntakeDialog";
 
@@ -23,8 +23,62 @@ const FLAG_LABELS = {
   unparsed_drop_off_date: "Unparsed drop-off date",
 };
 
+const TONES = {
+  review: {
+    label: "Needs review",
+    ink: "#8a6a14",
+    soft: "#faf6e9",
+    border: "#ead9a8",
+    avatar: "#f3ead0",
+  },
+  owed: {
+    label: "Balance owed",
+    ink: "#8b1f6b",
+    soft: "#f8eef5",
+    border: "#e8cfe0",
+    avatar: "#f0dceb",
+  },
+  settled: {
+    label: "Settled",
+    ink: "#3d6b52",
+    soft: "#f3f8f4",
+    border: "#d5e5da",
+    avatar: "#e4f0e8",
+  },
+};
+
+const ease = [0.22, 1, 0.36, 1];
+const panel =
+  "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 14 },
+  show: (i = 0) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: Math.min(i, 12) * 0.04, duration: 0.5, ease },
+  }),
+};
+
 function flagLabel(flag) {
   return FLAG_LABELS[flag] || flag;
+}
+
+function toneFor(c) {
+  const flags = c.import_flags || [];
+  if (c.needs_review || flags.length > 0) return TONES.review;
+  if ((c.total_owed || 0) > 0) return TONES.owed;
+  return TONES.settled;
+}
+
+function initials(name) {
+  return (name || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 export default function Consignors() {
@@ -48,6 +102,11 @@ export default function Consignors() {
 
   const flaggedCount = useMemo(
     () => list.filter((c) => c.needs_review || (c.import_flags || []).length > 0).length,
+    [list]
+  );
+
+  const totalOwed = useMemo(
+    () => list.reduce((sum, c) => sum + (c.total_owed || 0), 0),
     [list]
   );
 
@@ -110,59 +169,67 @@ export default function Consignors() {
   };
 
   return (
-    <div className="px-6 md:px-10 py-8">
-      <PageHeader
-        title="Consignors"
-        subtitle={`${list.length} consignor${list.length === 1 ? "" : "s"} on file${
-          flaggedCount ? ` · ${flaggedCount} need review` : ""
-        }`}
-        testid="consignors-title"
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="download-consignor-template-btn"
-              className="ee-btn-label"
-              onClick={downloadTemplate}
-            >
-              <Download size={14} className="md:mr-1" />
-              <span className="hidden md:inline">Template</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="import-consignors-btn"
-              className="ee-btn-label"
-              disabled={importing}
-              onClick={() => fileRef.current?.click()}
-            >
-              <Upload size={14} className="md:mr-1" />
-              <span className="hidden md:inline">
-                {importing ? "Importing…" : "Import CSV"}
-              </span>
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              data-testid="import-consignors-file"
-              onChange={onImportFile}
-            />
-            <Button
-              data-testid="open-intake-btn"
-              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-              onClick={() => setOpenIntake(true)}
-            >
-              <Plus size={14} className="md:mr-1" />
-              <span className="hidden md:inline">New Drop-Off</span>
-            </Button>
-          </div>
-        }
-      />
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.55, ease }}
+        className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4"
+      >
+        <div>
+          <h1 data-testid="consignors-title" className="ee-page-title text-2xl">
+            Consignors
+          </h1>
+          <p className="text-sm text-neutral-500 mt-1">
+            {list.length} consignor{list.length === 1 ? "" : "s"} on file
+            {list.length > 0 ? ` · ${fmtMoney(totalOwed)} owed` : ""}
+            {flaggedCount ? ` · ${flaggedCount} need review` : ""}
+          </p>
+        </div>
+        <div className="ee-page-actions">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="download-consignor-template-btn"
+            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+            onClick={downloadTemplate}
+          >
+            <Download size={14} className="md:mr-1" />
+            <span className="hidden md:inline">Template</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="import-consignors-btn"
+            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+            disabled={importing}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload size={14} className="md:mr-1" />
+            <span className="hidden md:inline">
+              {importing ? "Importing…" : "Import CSV"}
+            </span>
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            data-testid="import-consignors-file"
+            onChange={onImportFile}
+          />
+          <Button
+            data-testid="open-intake-btn"
+            className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            onClick={() => setOpenIntake(true)}
+          >
+            <Plus size={14} className="md:mr-1" />
+            <span className="hidden md:inline">New Drop Off</span>
+          </Button>
+        </div>
+      </motion.div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative w-full">
           <Search
             size={14}
@@ -173,17 +240,17 @@ export default function Consignors() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search name, ID, phone, email…"
-            className="w-full pl-9"
+            className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
           />
         </div>
         <Button
           type="button"
           variant={flaggedOnly ? "default" : "outline"}
           data-testid="filter-flagged-btn"
-          className={`ee-btn-label shrink-0 ${
+          className={`ee-btn-label shrink-0 rounded-[8px] ${
             flaggedOnly
               ? "bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-              : ""
+              : "border-[var(--ee-sidebar-border)]"
           }`}
           onClick={() => setFlaggedOnly((v) => !v)}
         >
@@ -195,69 +262,127 @@ export default function Consignors() {
         </Button>
       </div>
 
-      <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
-              <tr>
-                {["ID", "Name", "Phone", "Email", "Flags", "Active Items", "Total Owed", "Payout"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody data-testid="consignors-tbody">
-              {filtered.map((c) => {
-                const flags = c.import_flags || [];
-                return (
-                  <tr
-                    key={c.consignor_id}
-                    data-testid={`consignor-row-${c.consignor_id}`}
-                    className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt hover:bg-[var(--ee-magenta-soft)]/40 cursor-pointer"
-                    onClick={() => nav(`/consignors/${c.consignor_id}`)}
-                  >
-                    <td className="px-3 py-2.5 font-semibold">{c.consignor_id}</td>
-                    <td className="px-3 py-2.5">{c.full_name}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{c.phone || "—"}</td>
-                    <td
-                      className="px-3 py-2.5 text-neutral-600 max-w-[200px] truncate"
-                      title={c.email || undefined}
-                    >
-                      {c.email || "—"}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {flags.length > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
-                          title={flags.map(flagLabel).join(", ")}
-                        >
-                          <Flag size={10} />
-                          {flags.length}
-                        </span>
-                      ) : (
-                        <span className="text-neutral-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">{c.active_items}</td>
-                    <td className="px-3 py-2.5 font-semibold text-[var(--ee-magenta)]">
-                      {fmtMoney(c.total_owed)}
-                    </td>
-                    <td className="px-3 py-2.5 text-neutral-600">{c.payout_method}</td>
-                  </tr>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="text-center text-neutral-400 py-10 text-sm font-light">
-                    No consignors match.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-600">
+        {Object.values(TONES).map((t) => (
+          <div key={t.label} className="inline-flex items-center gap-1.5">
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0"
+              style={{ background: t.ink }}
+            />
+            {t.label}
+          </div>
+        ))}
       </div>
+
+      <div
+        data-testid="consignors-tbody"
+        className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"
+      >
+        {filtered.map((c, i) => {
+          const flags = c.import_flags || [];
+          const tone = toneFor(c);
+          return (
+            <motion.button
+              key={c.consignor_id}
+              type="button"
+              data-testid={`consignor-row-${c.consignor_id}`}
+              custom={i}
+              variants={fadeUp}
+              initial="hidden"
+              animate="show"
+              whileHover={{ y: -4 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+              onClick={() => nav(`/consignors/${c.consignor_id}`)}
+              className={`${panel} p-5 text-left cursor-pointer`}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="w-11 h-11 rounded-[10px] flex items-center justify-center text-[13px] font-bold shrink-0"
+                  style={{
+                    background: tone.avatar,
+                    color: tone.ink,
+                    boxShadow: `inset 0 0 0 1px ${tone.border}`,
+                  }}
+                >
+                  {initials(c.full_name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-[var(--ee-ink)] truncate">
+                        {c.full_name}
+                      </div>
+                      <div className="text-[11px] text-neutral-500 tabular-nums mt-0.5">
+                        {c.consignor_id}
+                      </div>
+                    </div>
+                    <span
+                      className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border shrink-0"
+                      style={{
+                        color: tone.ink,
+                        background: tone.soft,
+                        borderColor: tone.border,
+                      }}
+                    >
+                      {tone.label}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[10px] tracking-[0.16em] uppercase text-neutral-500 font-semibold">
+                    Owed
+                  </div>
+                  <div
+                    className="text-xl font-bold tabular-nums mt-0.5"
+                    style={{
+                      color: (c.total_owed || 0) > 0 ? tone.ink : "#a3a3a3",
+                    }}
+                  >
+                    {fmtMoney(c.total_owed)}
+                  </div>
+                </div>
+                <div className="text-right text-[11px] text-neutral-500">
+                  <div>
+                    {c.active_items} active
+                  </div>
+                  <div>{c.payout_method || "—"}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-black/[0.06] space-y-1.5 text-[12px] text-neutral-600">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Phone size={12} className="shrink-0 text-neutral-400" />
+                  <span className="truncate">{c.phone || "No phone"}</span>
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Mail size={12} className="shrink-0 text-neutral-400" />
+                  <span className="truncate" title={c.email || undefined}>
+                    {c.email || "No email"}
+                  </span>
+                </div>
+                {flags.length > 0 && (
+                  <div
+                    className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-800 pt-0.5"
+                    title={flags.map(flagLabel).join(", ")}
+                  >
+                    <Flag size={10} />
+                    {flags.map(flagLabel).join(" · ")}
+                  </div>
+                )}
+              </div>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="text-center text-neutral-400 py-12 text-sm font-light">
+          No consignors match.
+        </div>
+      )}
 
       <IntakeDialog
         open={openIntake}
@@ -288,7 +413,10 @@ export default function Consignors() {
                   ["Skipped", importResult.skipped],
                   ["Errors", importResult.errors?.length || 0],
                 ].map(([label, value]) => (
-                  <div key={label} className="border border-[var(--ee-border)] rounded-md p-3">
+                  <div
+                    key={label}
+                    className="border border-[var(--ee-sidebar-border)] rounded-[11px] p-3"
+                  >
                     <div className="text-[10px] uppercase tracking-[0.14em] text-neutral-500 font-semibold">
                       {label}
                     </div>
@@ -306,7 +434,7 @@ export default function Consignors() {
               {(importResult.flagged_rows?.length > 0 ||
                 importResult.skipped_rows?.length > 0 ||
                 importResult.errors?.length > 0) && (
-                <div className="max-h-48 overflow-y-auto border border-[var(--ee-border)] rounded-md divide-y divide-[var(--ee-border)]">
+                <div className="max-h-48 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[11px] divide-y divide-[var(--ee-sidebar-border)]">
                   {importResult.flagged_rows?.map((f) => (
                     <div key={`f-${f.row}-${f.consignor_id}`} className="px-3 py-2 text-amber-800">
                       Row {f.row} ({f.consignor_id}):{" "}

@@ -14,7 +14,7 @@ from models import (
     ConsignorImportRowIssue,
     ConsignorUpdate,
 )
-from auth import get_current_user
+from auth import get_current_user, require_roles
 from id_gen import next_consignor_id
 
 router = APIRouter(prefix="/api/consignors", tags=["consignors"])
@@ -131,7 +131,6 @@ def _normalize_external_id(raw: str) -> str:
     digits = re.sub(r"\D+", "", s)
     if digits and (digits == s or re.fullmatch(r"\d+", s)):
         return digits
-    # Allow already-formatted IDs like EE-001
     return s
 
 
@@ -194,6 +193,8 @@ def _compute_import_flags(
 
 
 async def _insert_consignor(db, body: ConsignorCreate) -> dict:
+    from boutique_settings import current_consignor_split_pct
+
     cid = (body.consignor_id or "").strip() or await next_consignor_id(db)
     existing = await db.consignors.find_one({"consignor_id": cid}, {"_id": 1})
     if existing:
@@ -202,6 +203,7 @@ async def _insert_consignor(db, body: ConsignorCreate) -> dict:
         )
 
     flags = list(body.import_flags or [])
+    split_pct = await current_consignor_split_pct(db)
     doc = {
         "id": str(uuid.uuid4()),
         "consignor_id": cid,
@@ -216,6 +218,7 @@ async def _insert_consignor(db, body: ConsignorCreate) -> dict:
         "date_of_drop_off": body.date_of_drop_off or "",
         "import_flags": flags,
         "needs_review": bool(flags),
+        "consignor_split_pct": split_pct,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.consignors.insert_one(doc)
@@ -489,7 +492,9 @@ async def update_consignor(
 
 @router.delete("/{consignor_id}")
 async def delete_consignor(
-    consignor_id: str, request: Request, _u: dict = Depends(get_current_user)
+    consignor_id: str,
+    request: Request,
+    _u: dict = Depends(require_roles("admin", "manager")),
 ):
     db = request.app.state.db
     count = await db.inventory.count_documents({"consignor_id": consignor_id})

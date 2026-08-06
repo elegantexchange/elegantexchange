@@ -2,18 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Brand tokens — The Elegant Exchange */
+/* Brand tokens — The Elegant Exchange (Notion-inspired shell) */
 :root {
-    --ee-bg: #fcfcfc;
+    --ee-bg: #f0f0f0;
     --ee-ink: #1a1a1a;
     --ee-magenta: #8b1f6b;
     --ee-magenta-soft: #f5e8f2;
-    --ee-border: #dddddd;
+    --ee-border: #e8e8e5;
+    --ee-panel: #fcfcfc;
+    --ee-sidebar: #fcfcfc;
+    --ee-sidebar-border: #e8e8e8;
+    --ee-sidebar-hover: rgba(0, 0, 0, 0.04);
+    --ee-sidebar-active: rgba(0, 0, 0, 0.06);
     --ee-success-bg: #d6f0d6;
     --ee-warning-bg: #fff8dc;
     --ee-error-bg: #fad9d9;
 
-    --background: 0 0% 99%;
+    --background: 60 7% 97%;
     --foreground: 0 0% 10%;
     --card: 0 0% 100%;
     --card-foreground: 0 0% 10%;
@@ -21,18 +26,18 @@
     --popover-foreground: 0 0% 10%;
     --primary: 316 64% 33%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 320 35% 93%;
+    --secondary: 60 5% 94%;
     --secondary-foreground: 0 0% 10%;
-    --muted: 0 0% 95%;
+    --muted: 60 5% 94%;
     --muted-foreground: 0 0% 40%;
-    --accent: 320 35% 93%;
-    --accent-foreground: 316 64% 33%;
+    --accent: 60 5% 94%;
+    --accent-foreground: 0 0% 10%;
     --destructive: 0 64% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 87%;
-    --input: 0 0% 87%;
+    --border: 60 5% 90%;
+    --input: 60 5% 90%;
     --ring: 316 64% 33%;
-    --radius: 0.375rem;
+    --radius: 0.4rem;
     --chart-1: 316 64% 33%;
     --chart-2: 316 40% 60%;
     --chart-3: 0 0% 30%;
@@ -44,7 +49,7 @@ body {
     margin: 0;
     background: var(--ee-bg);
     color: var(--ee-ink);
-    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     font-weight: 400;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -58,11 +63,11 @@ body {
 
 /* Typography helpers */
 .ee-table-header {
-    font-weight: 700;
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ee-ink);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #787774;
 }
 
 .ee-page-title {
@@ -115,6 +120,16 @@ body {
 }
 
 .ee-btn-group::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar while keeping scroll */
+.ee-scroll-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.ee-scroll-hide::-webkit-scrollbar {
     display: none;
 }
 
@@ -172,16 +187,20 @@ body {
     }
 }
 
-/* Alt row pink */
+/* Subtle zebra — modern / Notion-like */
 .ee-row-alt:nth-child(even) {
-    background: #fbf3f7;
+    background: rgba(0, 0, 0, 0.015);
 }
 
-/* Magenta accent bar */
+.ee-row-alt:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* Active tab accent */
 .ee-active-tab {
-    box-shadow: inset 3px 0 0 var(--ee-magenta);
-    color: var(--ee-magenta);
-    background: var(--ee-magenta-soft);
+    color: var(--ee-ink);
+    background: var(--ee-sidebar-active);
+    border-radius: 6px;
 }
 
 /* Status pills */

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from datetime import date, timedelta
 from collections import defaultdict
 
-from auth import get_current_user
+from auth import require_roles
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -23,7 +23,7 @@ def _range_start(period: str) -> str | None:
 async def get_analytics(
     request: Request,
     period: str = "month",
-    _u: dict = Depends(get_current_user),
+    _u: dict = Depends(require_roles("admin", "manager")),
 ):
     db = request.app.state.db
     start = _range_start(period)
@@ -61,8 +61,15 @@ async def get_analytics(
     days_to_sell_list = []
     today = date.today()
     expiring_soon = 0
+    active_items = 0
+    on_floor_value = 0.0
     for i in inventory:
         if i["status"] == "Active":
+            active_items += 1
+            try:
+                on_floor_value += float(i.get("asking_price") or 0)
+            except (TypeError, ValueError):
+                pass
             active_by_cat[i.get("category", "Other")] += 1
             try:
                 pe = date.fromisoformat(i["period_end"])
@@ -79,6 +86,7 @@ async def get_analytics(
                     days_to_sell_list.append((ds - di).days)
             except Exception:
                 pass
+    on_floor_value = round(on_floor_value, 2)
     sell_through = round((sold_count / total_consigned) * 100, 1) if total_consigned else 0
     avg_days = round(sum(days_to_sell_list) / len(days_to_sell_list), 1) if days_to_sell_list else 0
     active_by_category = [
@@ -128,6 +136,8 @@ async def get_analytics(
         "sell_through_rate": sell_through,
         "avg_days_to_sell": avg_days,
         "expiring_soon": expiring_soon,
+        "active_items": active_items,
+        "on_floor_value": on_floor_value,
         "top_consignors": top_consignors_revenue,
         "pending_obligations": pending_obligations,
         "total_paid_out": total_paid_out,

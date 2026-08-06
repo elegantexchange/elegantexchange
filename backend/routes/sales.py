@@ -4,7 +4,8 @@ from datetime import datetime, timezone, date
 import uuid
 
 from models import SaleCreate
-from auth import get_current_user
+from auth import get_current_user, require_roles
+from boutique_settings import resolve_consignor_split_pct, split_sale_amount
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -21,10 +22,16 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
     iids = list({s["item_id"] for s in sales})
     imap = {}
     async for i in db.inventory.find({"item_id": {"$in": iids}}, {"_id": 0}):
-        imap[i["item_id"]] = i.get("description", "")
+        media = list(i.get("media") or [])
+        imap[i["item_id"]] = {
+            "description": i.get("description", ""),
+            "media": media,
+        }
     for s in sales:
+        info = imap.get(s["item_id"]) or {}
         s["consignor_name"] = cmap.get(s["consignor_id"], "")
-        s["description"] = imap.get(s["item_id"], "")
+        s["description"] = info.get("description", "")
+        s["media"] = list(info.get("media") or [])
     return sales
 
 
@@ -36,9 +43,12 @@ async def create_sale(
     item = await db.inventory.find_one({"item_id": body.item_id})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    consignor = await db.consignors.find_one(
+        {"consignor_id": item["consignor_id"]}, {"_id": 0}
+    )
     sale_price = float(body.sale_price)
-    store_cut = round(sale_price * 0.5, 2)
-    consignor_cut = round(sale_price - store_cut, 2)
+    split_pct = resolve_consignor_split_pct(item, consignor)
+    store_cut, consignor_cut = split_sale_amount(sale_price, split_pct)
     sale_date = body.sale_date or date.today().isoformat()
     doc = {
         "id": str(uuid.uuid4()),
@@ -48,6 +58,7 @@ async def create_sale(
         "sale_price": sale_price,
         "store_cut": store_cut,
         "consignor_cut": consignor_cut,
+        "consignor_split_pct": split_pct,
         "square_transaction_id": None,
         "payout_status": "Pending",
         "payout_date": None,
@@ -65,7 +76,11 @@ async def create_sale(
 
 
 @router.delete("/{sale_id}")
-async def delete_sale(sale_id: str, request: Request, _u: dict = Depends(get_current_user)):
+async def delete_sale(
+    sale_id: str,
+    request: Request,
+    _u: dict = Depends(require_roles("admin", "manager")),
+):
     db = request.app.state.db
     sale = await db.sales.find_one({"id": sale_id})
     if not sale:

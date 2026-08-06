@@ -61,7 +61,7 @@ export default function ConsignorDetail() {
             onClick={() => setIntakeOpen(true)}
           >
             <Plus size={14} className="md:mr-1" />
-            <span className="hidden md:inline">New Intake</span>
+            <span className="hidden md:inline">New Drop Off</span>
           </Button>
         }
       />
@@ -174,7 +174,7 @@ export default function ConsignorDetail() {
             <table className="w-full text-sm">
               <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
                 <tr>
-                  {["Item ID", "Description", "Category", "Price", "Date In", "Period End", "Status"].map((h) => (
+                  {["Ref", "Description", "Category", "Price", "Date In", "Period End", "Status"].map((h) => (
                     <th key={h} className="ee-table-header text-left px-4 py-3">{h}</th>
                   ))}
                 </tr>

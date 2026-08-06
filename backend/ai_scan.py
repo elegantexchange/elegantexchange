@@ -35,7 +35,7 @@ _SYSTEM_PROMPT = """You help boutique consignment staff digitize inventory from 
 Extract structured JSON only. No markdown.
 
 From the TAG (prefer printed/handwritten tag text):
-- consignor_id: boutique account ID, often 4 digits like 2001 (not the EE-#### item SKU unless that is all you see)
+- consignor_id: boutique account ID, often 4 digits like 2001 (not the item SKU unless that is all you see)
 - date_in: intake/date-in if present (any common date format)
 - asking_price: price if printed on tag
 - text_id: any secondary code/SKU on the tag
@@ -154,7 +154,6 @@ def _norm_condition(raw: str) -> str:
 def normalize_scan_payload(data: dict[str, Any]) -> dict[str, Any]:
     """Validate/normalize model JSON into ScanAssistResult-ready dict."""
     cid = normalize_external_id(str(data.get("consignor_id") or ""))
-    # Prefer boutique digit IDs; keep EE- style if that is what was on the tag
     description = (
         str(data.get("description") or data.get("tag_description") or "")
     ).strip()

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { isUiOnly, MOCK_OWNER } from "@/lib/auth";
 
 const AuthContext = createContext(null);
 
@@ -8,6 +9,11 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (isUiOnly) {
+      setUser(MOCK_OWNER);
+      setLoading(false);
+      return;
+    }
     const token = localStorage.getItem("ee_token");
     if (!token) {
       setUser(null);
@@ -30,6 +36,10 @@ export function AuthProvider({ children }) {
   }, [refresh]);
 
   const login = async (email, password) => {
+    if (isUiOnly) {
+      setUser(MOCK_OWNER);
+      return MOCK_OWNER;
+    }
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("ee_token", data.token);
     setUser(data.user);
@@ -37,6 +47,10 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    if (isUiOnly) {
+      setUser(null);
+      return;
+    }
     try {
       await api.post("/auth/logout");
     } catch {

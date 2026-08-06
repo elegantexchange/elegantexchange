@@ -31,9 +31,19 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 *token.json*
 *credentials.json*
+
+# Local-only UI mock dataset + concept playgrounds (not for production)
+frontend/src/lib/uiOnlyMock.js
+frontend/src/pages/*Concepts.jsx
 
 # Logs and debug files
 npm-debug.log*

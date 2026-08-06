@@ -22,6 +22,7 @@ from routes.analytics import router as analytics_router
 from routes.dashboard import router as dashboard_router
 from routes.square_routes import router as square_router
 from routes.admin import router as admin_router
+from routes.settings import router as settings_router
 from seed import seed_admin, seed_demo
 
 
@@ -118,6 +119,7 @@ for r in (
     dashboard_router,
     square_router,
     admin_router,
+    settings_router,
 ):
     app.include_router(r)
 

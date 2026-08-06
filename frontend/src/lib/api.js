@@ -1,4 +1,5 @@
 import axios from "axios";
+import { isUiOnly } from "@/lib/auth";
 
 const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
 export const API_BASE = BACKEND_URL ? `${BACKEND_URL}/api` : "";
@@ -14,12 +15,27 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Local-only mock dataset (frontend/src/lib/uiOnlyMock.js — gitignored)
+  if (isUiOnly) {
+    config.adapter = async (cfg) => {
+      const { uiOnlyMockData } = await import("@/lib/uiOnlyMock");
+      return {
+        data: uiOnlyMockData(cfg),
+        status: 200,
+        statusText: "OK (UI-only)",
+        headers: {},
+        config: cfg,
+        request: {},
+      };
+    };
+  }
   return config;
 });
 
 api.interceptors.response.use(
   (r) => r,
   (err) => {
+    if (isUiOnly) return Promise.reject(err);
     if (err?.response?.status === 401 && window.location.pathname !== "/login") {
       localStorage.removeItem("ee_token");
       window.location.href = "/login";

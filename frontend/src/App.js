@@ -3,6 +3,7 @@ import "@/App.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
+import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import Consignors from "@/pages/Consignors";
 import ConsignorDetail from "@/pages/ConsignorDetail";
@@ -11,14 +12,29 @@ import Sales from "@/pages/Sales";
 import Payouts from "@/pages/Payouts";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
+import TourPreview from "@/pages/TourPreview";
 import TagPrint from "@/pages/TagPrint";
-import { isOwner } from "@/lib/auth";
+import { hasRole, needsOnboarding } from "@/lib/auth";
 
-function OwnerOnly({ children }) {
+function RoleGate({ roles, children }) {
   const { user } = useAuth();
   if (!user) return null;
-  if (!isOwner(user)) return <Navigate to="/" replace />;
+  if (!hasRole(user, ...roles)) return <Navigate to="/" replace />;
   return children;
+}
+
+function OnboardingRoute({ preview = false }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-neutral-500 text-sm">
+        Loading…
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!preview && !needsOnboarding(user)) return <Navigate to="/" replace />;
+  return <Onboarding preview={preview} />;
 }
 
 function App() {
@@ -28,6 +44,11 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/onboarding" element={<OnboardingRoute />} />
+            <Route
+              path="/onboarding-preview"
+              element={<OnboardingRoute preview />}
+            />
             <Route path="/print/tags" element={<TagPrint />} />
             <Route element={<Layout />}>
               <Route index element={<Dashboard />} />
@@ -38,27 +59,21 @@ function App() {
               <Route
                 path="/payouts"
                 element={
-                  <OwnerOnly>
+                  <RoleGate roles={["admin", "manager"]}>
                     <Payouts />
-                  </OwnerOnly>
+                  </RoleGate>
                 }
               />
               <Route
                 path="/analytics"
                 element={
-                  <OwnerOnly>
+                  <RoleGate roles={["admin", "manager"]}>
                     <Analytics />
-                  </OwnerOnly>
+                  </RoleGate>
                 }
               />
-              <Route
-                path="/settings"
-                element={
-                  <OwnerOnly>
-                    <Settings />
-                  </OwnerOnly>
-                }
-              />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/tour-preview" element={<TourPreview />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

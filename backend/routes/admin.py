@@ -1,11 +1,11 @@
 """Owner-only admin operations."""
 from fastapi import APIRouter, Depends, Request
 
-from auth import require_owner
+from auth import require_roles
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# Never touch `users` — owner/staff logins and roles live there.
+# Never touch `users` — admin/manager/retail logins and roles live there.
 _BOUTIQUE_COLLECTIONS = (
     "consignors",
     "inventory",
@@ -17,7 +17,7 @@ _BOUTIQUE_COLLECTIONS = (
 
 
 @router.post("/reset-boutique-data")
-async def reset_boutique_data(request: Request, _u: dict = Depends(require_owner)):
+async def reset_boutique_data(request: Request, _u: dict = Depends(require_roles("admin"))):
     """Remove all consignor/inventory/sales data. Keeps users and Square connection."""
     db = request.app.state.db
     deleted = {}

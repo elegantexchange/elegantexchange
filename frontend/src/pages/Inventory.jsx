@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
-import PageHeader from "@/components/PageHeader";
 import StatusPill from "@/components/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Download, Flag, Printer, Search, Upload } from "lucide-react";
+import { Camera, Flag, Printer, Search, SlidersHorizontal, Upload, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -22,15 +22,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { CATEGORIES } from "@/lib/brand";
 import { toast } from "sonner";
 import ItemScanDialog from "@/components/ItemScanDialog";
+import ItemMediaGallery from "@/components/ItemMediaGallery";
 
 const STATUS_FILTERS = ["All", "Active", "Expiring Soon", "Expired", "Sold", "Donated", "Returned"];
-const FILTER_PILL_W = "w-[9.75rem]";
-const FILTER_PILL_CLASS =
-  "shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded border";
 
 const FLAG_LABELS = {
   missing_description: "Missing description",
@@ -44,8 +52,73 @@ const FLAG_LABELS = {
   consignor_created: "Consignor auto-created",
 };
 
+const TONES = {
+  review: {
+    label: "Needs review",
+    ink: "#8a6a14",
+    soft: "#faf6e9",
+    border: "#ead9a8",
+    accent: "#c4a35a",
+    avatar: "#f3ead0",
+  },
+  attention: {
+    label: "Attention",
+    ink: "#9a3b3b",
+    soft: "#faf0f0",
+    border: "#e8c8c8",
+    accent: "#c46b6b",
+    avatar: "#f3e0e0",
+  },
+  active: {
+    label: "On floor",
+    ink: "#8b1f6b",
+    soft: "#f8eef5",
+    border: "#e8cfe0",
+    accent: "#8b1f6b",
+    avatar: "#f0dceb",
+  },
+  closed: {
+    label: "Closed",
+    ink: "#3d6b52",
+    soft: "#f3f8f4",
+    border: "#d5e5da",
+    accent: "#6f9a7e",
+    avatar: "#e4f0e8",
+  },
+};
+
+const ease = [0.22, 1, 0.36, 1];
+const panel =
+  "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
+
 function flagLabel(flag) {
   return FLAG_LABELS[flag] || flag;
+}
+
+function toneFor(i, today, sevenAhead) {
+  const flags = i.import_flags || [];
+  if (i.needs_review || flags.length > 0) return TONES.review;
+  if (
+    i.status === "Expired" ||
+    (i.status === "Active" &&
+      i.period_end &&
+      i.period_end <= sevenAhead &&
+      i.period_end >= today)
+  ) {
+    return TONES.attention;
+  }
+  if (i.status === "Active") return TONES.active;
+  return TONES.closed;
+}
+
+function initials(desc) {
+  return (desc || "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
 }
 
 export default function Inventory() {
@@ -56,6 +129,7 @@ export default function Inventory() {
   const [rackFilter, setRackFilter] = useState("All");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [selected, setSelected] = useState(new Set());
+  const [focusId, setFocusId] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
@@ -80,6 +154,11 @@ export default function Inventory() {
 
   const flaggedCount = useMemo(
     () => items.filter((i) => i.needs_review || (i.import_flags || []).length > 0).length,
+    [items]
+  );
+
+  const activeCount = useMemo(
+    () => items.filter((i) => i.status === "Active").length,
     [items]
   );
 
@@ -111,6 +190,21 @@ export default function Inventory() {
     });
   }, [items, q, statusFilter, categoryFilter, rackFilter, flaggedOnly, today, sevenAhead]);
 
+  useEffect(() => {
+    if (filtered.length === 0) {
+      setFocusId(null);
+      return;
+    }
+    if (!focusId || !filtered.some((i) => i.item_id === focusId)) {
+      setFocusId(filtered[0].item_id);
+    }
+  }, [filtered, focusId]);
+
+  const focused = useMemo(
+    () => filtered.find((i) => i.item_id === focusId) || null,
+    [filtered, focusId]
+  );
+
   const allChecked = filtered.length > 0 && filtered.every((i) => selected.has(i.item_id));
 
   const toggle = (id) => {
@@ -127,11 +221,11 @@ export default function Inventory() {
     }
   };
 
-  const bulk = async (action) => {
-    if (selected.size === 0) return;
+  const bulk = async (action, ids = [...selected]) => {
+    if (!ids.length) return;
     try {
-      await api.post("/inventory/bulk", { item_ids: [...selected], action });
-      toast.success(`${selected.size} item(s) updated`);
+      await api.post("/inventory/bulk", { item_ids: ids, action });
+      toast.success(`${ids.length} item(s) updated`);
       setSelected(new Set());
       load();
     } catch (e) {
@@ -139,27 +233,9 @@ export default function Inventory() {
     }
   };
 
-  const printTags = () => {
-    if (selected.size === 0) return;
-    const ids = [...selected].join(",");
-    window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-  };
-
-  const downloadTemplate = async () => {
-    try {
-      const res = await api.get("/inventory/import/template", {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "inventory-import-template.csv";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Template downloaded");
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail) || e.message);
-    }
+  const printTags = (ids) => {
+    if (!ids?.length) return;
+    window.open(`/print/tags?ids=${encodeURIComponent(ids.join(","))}`, "_blank", "noopener");
   };
 
   const onImportFile = async (e) => {
@@ -223,230 +299,536 @@ export default function Inventory() {
     }
   };
 
-  return (
-    <div className="px-6 md:px-10 py-8">
-      <PageHeader
-        title="Inventory"
-        subtitle={`${items.length} item${items.length === 1 ? "" : "s"} tracked${
-          flaggedCount ? ` · ${flaggedCount} need review` : ""
-        }`}
-        testid="inventory-title"
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="inventory-scan-item-btn"
-              className="ee-btn-label"
-              onClick={() => setScanOpen(true)}
-            >
-              <Camera size={14} className="md:mr-1" />
-              <span className="hidden md:inline">Scan item</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="download-inventory-template-btn"
-              className="ee-btn-label"
-              onClick={downloadTemplate}
-            >
-              <Download size={14} className="md:mr-1" />
-              <span className="hidden md:inline">Template</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="import-inventory-btn"
-              className="ee-btn-label"
-              disabled={importing}
-              onClick={() => fileRef.current?.click()}
-            >
-              <Upload size={14} className="md:mr-1" />
-              <span className="hidden md:inline">
-                {importing ? "Importing…" : "Import CSV"}
-              </span>
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              data-testid="import-inventory-file"
-              onChange={onImportFile}
-            />
-            <div className="relative shrink-0">
-              <Search
-                size={12}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
-              />
-              <Input
-                data-testid="inventory-search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                aria-label="Search inventory"
-                className={`h-auto ${FILTER_PILL_W} pl-7 pr-3 py-1.5 text-[10px] uppercase tracking-[0.14em] font-semibold rounded border border-[var(--ee-border)] shadow-none text-neutral-600 hover:text-[var(--ee-magenta)] focus-visible:ring-1`}
-              />
-            </div>
-          </div>
-        }
-      />
+  const focusedTone = focused ? toneFor(focused, today, sevenAhead) : null;
 
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f}
-            data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
-            onClick={() => setStatusFilter(f)}
-            className={`${FILTER_PILL_CLASS} ${
-              statusFilter === f
-                ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-                : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-            }`}
+  const saveMedia = async (itemId, nextMedia) => {
+    setItems((prev) =>
+      prev.map((i) => (i.item_id === itemId ? { ...i, media: nextMedia } : i))
+    );
+    try {
+      const { data } = await api.patch(`/inventory/${itemId}`, { media: nextMedia });
+      if (data && Array.isArray(data.media)) {
+        setItems((prev) =>
+          prev.map((i) => (i.item_id === itemId ? { ...i, ...data } : i))
+        );
+      }
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+      load();
+      throw e;
+    }
+  };
+
+  const activeChips = [
+    statusFilter !== "All" && {
+      key: "status",
+      label: statusFilter,
+      testid: "chip-status",
+      clear: () => setStatusFilter("All"),
+    },
+    rackFilter !== "All" && {
+      key: "rack",
+      label: `Rack ${rackFilter}`,
+      testid: "chip-rack",
+      clear: () => setRackFilter("All"),
+    },
+    categoryFilter !== "All" && {
+      key: "category",
+      label: categoryFilter,
+      testid: "chip-category",
+      clear: () => setCategoryFilter("All"),
+    },
+    flaggedOnly && {
+      key: "review",
+      label: flaggedCount > 0 ? `Needs review (${flaggedCount})` : "Needs review",
+      testid: "chip-flagged",
+      clear: () => setFlaggedOnly(false),
+    },
+  ].filter(Boolean);
+
+  const clearAllFilters = () => {
+    setStatusFilter("All");
+    setRackFilter("All");
+    setCategoryFilter("All");
+    setFlaggedOnly(false);
+  };
+
+  return (
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.55, ease }}
+        className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4"
+      >
+        <div>
+          <h1 data-testid="inventory-title" className="ee-page-title text-2xl">
+            Inventory
+          </h1>
+          <p className="text-sm text-neutral-500 mt-1">
+            {items.length} item{items.length === 1 ? "" : "s"} · {activeCount} on floor
+            {flaggedCount ? ` · ${flaggedCount} need review` : ""}
+            {` · ${filtered.length} shown`}
+          </p>
+        </div>
+        <div className="ee-page-actions">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="inventory-scan-item-btn"
+            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+            onClick={() => setScanOpen(true)}
           >
-            {f}
-          </button>
-        ))}
-        <div className="shrink-0">
-          <Select value={rackFilter} onValueChange={setRackFilter}>
-            <SelectTrigger
-              data-testid="filter-rack"
-              className={`${FILTER_PILL_CLASS} h-auto ${FILTER_PILL_W} gap-1.5 shadow-none [&_svg]:h-3 [&_svg]:w-3 [&_svg]:opacity-70 ${
-                rackFilter !== "All"
-                  ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)] hover:bg-[var(--ee-magenta)] hover:text-white"
-                  : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-              }`}
-            >
-              <SelectValue placeholder="All racks" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">All racks</SelectItem>
-              {racks.map((r) => (
-                <SelectItem key={r} value={r}>{r}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <Camera size={14} className="md:mr-1" />
+            <span className="hidden md:inline">Scan item</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="import-inventory-btn"
+            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+            disabled={importing}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload size={14} className="md:mr-1" />
+            <span className="hidden md:inline">
+              {importing ? "Importing…" : "Import CSV"}
+            </span>
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            data-testid="import-inventory-file"
+            onChange={onImportFile}
+          />
         </div>
-        <div className="shrink-0">
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger
-              data-testid="filter-category"
-              className={`${FILTER_PILL_CLASS} h-auto ${FILTER_PILL_W} gap-1.5 shadow-none [&_svg]:h-3 [&_svg]:w-3 [&_svg]:opacity-70 ${
-                categoryFilter !== "All"
-                  ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)] hover:bg-[var(--ee-magenta)] hover:text-white"
-                  : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-              }`}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">All categories</SelectItem>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      </motion.div>
+
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+          />
+          <Input
+            data-testid="inventory-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search item, consignor, rack, color…"
+            className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
+          />
         </div>
-        <button
-          type="button"
-          data-testid="filter-flagged-inventory-btn"
-          onClick={() => setFlaggedOnly((v) => !v)}
-          className={`${FILTER_PILL_CLASS} inline-flex items-center gap-1 ${
-            flaggedOnly
-              ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-              : "border-[var(--ee-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-          }`}
-        >
-          <Flag size={10} />
-          Needs review
-          {flaggedCount > 0 && <span className="opacity-80">({flaggedCount})</span>}
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="add-filter-btn"
+              className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
+            >
+              <SlidersHorizontal size={14} className="md:mr-1" />
+              <span className="hidden sm:inline">Add filter</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger data-testid="filter-status-menu">
+                Status
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                {STATUS_FILTERS.filter((f) => f !== "All").map((f) => (
+                  <DropdownMenuItem
+                    key={f}
+                    data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
+                    onClick={() => setStatusFilter(f)}
+                  >
+                    {f}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger data-testid="filter-rack">Rack</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                {racks.length === 0 ? (
+                  <DropdownMenuItem disabled>No racks yet</DropdownMenuItem>
+                ) : (
+                  racks.map((r) => (
+                    <DropdownMenuItem key={r} onClick={() => setRackFilter(r)}>
+                      {r}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger data-testid="filter-category">
+                Category
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                {CATEGORIES.map((c) => (
+                  <DropdownMenuItem key={c} onClick={() => setCategoryFilter(c)}>
+                    {c}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="filter-flagged-inventory-btn"
+              onClick={() => setFlaggedOnly(true)}
+            >
+              <Flag size={14} className="mr-2" />
+              Needs review
+              {flaggedCount > 0 ? ` (${flaggedCount})` : ""}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Bulk action bar */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="active-filter-chips">
+          {activeChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              data-testid={chip.testid}
+              onClick={chip.clear}
+              className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border border-[var(--ee-sidebar-border)] bg-black/[0.02] text-neutral-700 hover:border-[var(--ee-magenta)] transition-colors"
+            >
+              {chip.label}
+              <X size={12} className="text-neutral-400" />
+            </button>
+          ))}
+          <button
+            type="button"
+            data-testid="clear-all-filters"
+            onClick={clearAllFilters}
+            className="text-[11px] text-neutral-500 hover:text-[var(--ee-magenta)] px-1"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-600">
+        {Object.values(TONES).map((t) => (
+          <div key={t.label} className="inline-flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.accent }} />
+            {t.label}
+          </div>
+        ))}
+      </div>
+
       {selected.size > 0 && (
         <div
           data-testid="bulk-bar"
-          className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-magenta)] rounded-md px-4 py-2 mb-4 flex flex-col sm:flex-row sm:items-center gap-2"
+          className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-magenta)] rounded-[11px] px-4 py-2 flex flex-col sm:flex-row sm:items-center gap-2"
         >
           <span className="text-sm font-semibold text-[var(--ee-magenta)] shrink-0">
             {selected.size} selected
           </span>
           <div className="ee-page-actions sm:ml-auto">
-            <Button data-testid="bulk-sold" size="sm" variant="outline" className="ee-btn-label" onClick={() => bulk("sold")}>Mark Sold</Button>
-            <Button data-testid="bulk-donated" size="sm" variant="outline" className="ee-btn-label" onClick={() => bulk("donated")}>Mark Donated</Button>
-            <Button data-testid="bulk-returned" size="sm" variant="outline" className="ee-btn-label" onClick={() => bulk("returned")}>Mark Returned</Button>
-            <Button data-testid="bulk-print" size="sm" className="ee-btn-label bg-[var(--ee-magenta)] text-white hover:bg-[#6f1655]" onClick={printTags}>
+            <Button
+              data-testid="bulk-sold"
+              size="sm"
+              variant="outline"
+              className="ee-btn-label"
+              onClick={() => bulk("sold")}
+            >
+              Mark Sold
+            </Button>
+            <Button
+              data-testid="bulk-donated"
+              size="sm"
+              variant="outline"
+              className="ee-btn-label"
+              onClick={() => bulk("donated")}
+            >
+              Mark Donated
+            </Button>
+            <Button
+              data-testid="bulk-returned"
+              size="sm"
+              variant="outline"
+              className="ee-btn-label"
+              onClick={() => bulk("returned")}
+            >
+              Mark Returned
+            </Button>
+            <Button
+              data-testid="bulk-print"
+              size="sm"
+              className="ee-btn-label bg-[var(--ee-magenta)] text-white hover:bg-[#6f1655]"
+              onClick={() => printTags([...selected])}
+            >
               <Printer size={12} className="mr-1" /> Print Tags
             </Button>
           </div>
         </div>
       )}
 
-      <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
-              <tr>
-                <th className="px-3 py-3 w-8">
-                  <Checkbox checked={allChecked} onCheckedChange={toggleAll} data-testid="inv-select-all" />
-                </th>
-                {["Status", "Item ID", "Text ID", "Consignor", "Description", "Rack", "Color", "Size", "Price", "Date In", "Flags"].map((h) => (
-                  <th key={h} className="ee-table-header text-left px-3 py-3 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody data-testid="inventory-tbody">
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Dense list */}
+        <div
+          className={`${panel} overflow-hidden lg:w-[400px] xl:w-[440px] shrink-0 max-h-[70vh] flex flex-col`}
+        >
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--ee-sidebar-border)] shrink-0">
+            <Checkbox
+              checked={allChecked}
+              onCheckedChange={toggleAll}
+              data-testid="inv-select-all"
+            />
+            <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-neutral-500">
+              {filtered.length} shown
+            </span>
+          </div>
+          <div
+            data-testid="inventory-tbody"
+            className="ee-scroll-hide overflow-y-auto flex-1 min-h-0"
+          >
+            <ul className="divide-y divide-[var(--ee-sidebar-border)]">
               {filtered.map((i) => {
+                const tone = toneFor(i, today, sevenAhead);
                 const flags = i.import_flags || [];
+                const on = focusId === i.item_id;
                 return (
-                  <tr key={i.item_id} className="border-b border-[var(--ee-border)] last:border-0 ee-row-alt">
-                    <td className="px-3 py-2.5">
-                      <Checkbox
-                        data-testid={`inv-check-${i.item_id}`}
-                        checked={selected.has(i.item_id)}
-                        onCheckedChange={() => toggle(i.item_id)}
+                  <li key={i.item_id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      data-testid={`inv-row-${i.item_id}`}
+                      onClick={() => setFocusId(i.item_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setFocusId(i.item_id);
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors relative cursor-pointer ${
+                        on ? "bg-black/[0.03]" : "hover:bg-black/[0.015]"
+                      }`}
+                    >
+                      <span
+                        className="absolute left-0 top-0 bottom-0 w-[2px]"
+                        style={{ background: on ? tone.accent : "transparent" }}
                       />
-                    </td>
-                    <td className="px-3 py-2.5"><StatusPill status={i.status} /></td>
-                    <td className="px-3 py-2.5 font-semibold">{i.item_id}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{i.text_id || "—"}</td>
-                    <td className="px-3 py-2.5">
-                      <button
-                        onClick={() => nav(`/consignors/${i.consignor_id}`)}
-                        className="text-left hover:text-[var(--ee-magenta)] whitespace-nowrap"
+                      <div
+                        className="shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                       >
-                        {i.consignor_name}
-                        <span className="text-neutral-500 font-normal"> · {i.consignor_id}</span>
-                      </button>
-                    </td>
-                    <td className="px-3 py-2.5 max-w-[220px] truncate" title={i.description}>{i.description}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{i.rack || "—"}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{i.color || "—"}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{i.size || "—"}</td>
-                    <td className="px-3 py-2.5 font-semibold">{fmtMoney(i.asking_price)}</td>
-                    <td className="px-3 py-2.5 text-neutral-600">{fmtDate(i.date_in)}</td>
-                    <td className="px-3 py-2.5">
-                      {flags.length > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
-                          title={flags.map(flagLabel).join(", ")}
+                        <Checkbox
+                          data-testid={`inv-check-${i.item_id}`}
+                          checked={selected.has(i.item_id)}
+                          onCheckedChange={() => toggle(i.item_id)}
+                        />
+                      </div>
+                      {(i.media || [])[0] ? (
+                        <div className="w-9 h-9 rounded-[7px] overflow-hidden shrink-0 bg-neutral-100 border border-[var(--ee-sidebar-border)]">
+                          <img
+                            src={i.media[0]}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ) : null}
+                      <div className="min-w-0 flex-1 pl-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-semibold text-[13px] truncate">
+                            {i.description}
+                          </span>
+                          {flags.length > 0 && (
+                            <Flag size={10} className="text-amber-700 shrink-0" />
+                          )}
+                        </div>
+                        <div className="text-[10px] text-neutral-500 truncate mt-0.5">
+                          {i.item_id} · {i.rack || "—"} · {i.status}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div
+                          className="text-[13px] font-semibold tabular-nums"
+                          style={{ color: tone.ink }}
                         >
-                          <Flag size={10} />
-                          {flags.length}
-                        </span>
-                      ) : (
-                        <span className="text-neutral-300">—</span>
-                      )}
-                    </td>
-                  </tr>
+                          {fmtMoney(i.asking_price)}
+                        </div>
+                        <div
+                          className="text-[9px] uppercase tracking-[0.1em] font-semibold mt-0.5"
+                          style={{ color: tone.ink }}
+                        >
+                          {tone.label}
+                        </div>
+                      </div>
+                    </div>
+                  </li>
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={12} className="text-center text-sm text-neutral-400 py-12 font-light">No items match.</td></tr>
+                <li className="text-center text-sm text-neutral-400 py-12 font-light">
+                  No items match.
+                </li>
               )}
-            </tbody>
-          </table>
+            </ul>
+          </div>
         </div>
+
+        {/* Detail panel */}
+        <AnimatePresence mode="wait">
+          {focused && focusedTone ? (
+            <motion.div
+              key={focused.item_id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.35, ease }}
+              className={`${panel} p-6 sm:p-8 flex-1 min-w-0`}
+              data-testid="inventory-detail"
+            >
+              <div className="flex items-start gap-4">
+                <div
+                  className="w-14 h-14 rounded-[11px] flex items-center justify-center text-[15px] font-bold shrink-0 overflow-hidden"
+                  style={{
+                    background: focusedTone.avatar,
+                    color: focusedTone.ink,
+                    boxShadow: `inset 0 0 0 1px ${focusedTone.border}`,
+                  }}
+                >
+                  {(focused.media || [])[0] ? (
+                    <img
+                      src={focused.media[0]}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    initials(focused.description)
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="ee-page-title text-2xl truncate">
+                        {focused.description}
+                      </h2>
+                      <p className="text-sm text-neutral-500 mt-1 tabular-nums">
+                        {focused.item_id}
+                        {focused.category ? ` · ${focused.category}` : ""}
+                        {focused.color ? ` · ${focused.color}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div
+                        className="text-2xl font-bold tabular-nums"
+                        style={{ color: focusedTone.ink }}
+                      >
+                        {fmtMoney(focused.asking_price)}
+                      </div>
+                      <span
+                        className="inline-flex mt-1 text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
+                        style={{
+                          color: focusedTone.ink,
+                          background: focusedTone.soft,
+                          borderColor: focusedTone.border,
+                        }}
+                      >
+                        {focusedTone.label}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <ItemMediaGallery
+                  media={focused.media || []}
+                  onChange={(next) => saveMedia(focused.item_id, next)}
+                />
+              </div>
+
+              <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                {[
+                  ["Status", <StatusPill key="s" status={focused.status} />],
+                  ["Rack", focused.rack || "—"],
+                  ["Size", focused.size || "—"],
+                  ["Date in", fmtDate(focused.date_in)],
+                  ["Period end", fmtDate(focused.period_end)],
+                  ["Text ID", focused.text_id || "—"],
+                  [
+                    "Consignor",
+                    <button
+                      key="c"
+                      type="button"
+                      onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                      className="hover:text-[var(--ee-magenta)] text-left truncate"
+                    >
+                      {focused.consignor_name} · {focused.consignor_id}
+                    </button>,
+                  ],
+                  [
+                    "Flags",
+                    (focused.import_flags || []).length
+                      ? (focused.import_flags || []).map(flagLabel).join(", ")
+                      : "None",
+                  ],
+                ].map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <div className="text-[10px] tracking-[0.14em] uppercase text-neutral-500 font-semibold">
+                      {label}
+                    </div>
+                    <div className="mt-1 font-medium min-w-0">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {(focused.import_flags || []).length > 0 && (
+                <div className="mt-5 rounded-[11px] border border-amber-200 bg-amber-50 p-3">
+                  <div className="text-[10px] tracking-[0.14em] uppercase text-amber-800 font-semibold flex items-center gap-1">
+                    <Flag size={11} /> Needs review
+                  </div>
+                  <ul className="mt-1.5 text-sm text-amber-900 space-y-0.5">
+                    {focused.import_flags.map((f) => (
+                      <li key={f}>{flagLabel(f)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="mt-8 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                  onClick={() => printTags([focused.item_id])}
+                >
+                  <Printer size={13} className="mr-1" /> Print tag
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  onClick={() => bulk("sold", [focused.item_id])}
+                >
+                  Mark sold
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                >
+                  View consignor
+                </Button>
+              </div>
+            </motion.div>
+          ) : (
+            <div
+              className={`${panel} p-8 flex-1 min-w-0 flex items-center justify-center text-sm text-neutral-400`}
+            >
+              Select an item to inspect.
+            </div>
+          )}
+        </AnimatePresence>
       </div>
 
       <ItemScanDialog
@@ -546,7 +928,10 @@ export default function Inventory() {
                   ["Skipped", importResult.skipped],
                   ["Errors", importResult.errors?.length || 0],
                 ].map(([label, value]) => (
-                  <div key={label} className="border border-[var(--ee-border)] rounded-md p-3">
+                  <div
+                    key={label}
+                    className="border border-[var(--ee-sidebar-border)] rounded-[11px] p-3"
+                  >
                     <div className="text-[10px] uppercase tracking-[0.14em] text-neutral-500 font-semibold">
                       {label}
                     </div>
@@ -564,7 +949,7 @@ export default function Inventory() {
               {(importResult.flagged_rows?.length > 0 ||
                 importResult.skipped_rows?.length > 0 ||
                 importResult.errors?.length > 0) && (
-                <div className="max-h-48 overflow-y-auto border border-[var(--ee-border)] rounded-md divide-y divide-[var(--ee-border)]">
+                <div className="max-h-48 overflow-y-auto ee-scroll-hide border border-[var(--ee-sidebar-border)] rounded-[11px] divide-y divide-[var(--ee-sidebar-border)]">
                   {importResult.flagged_rows?.map((f) => (
                     <div key={`f-${f.row}-${f.item_id}`} className="px-3 py-2 text-amber-800">
                       Row {f.row} ({f.item_id} → {f.consignor_id}):{" "}

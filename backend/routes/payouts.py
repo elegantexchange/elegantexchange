@@ -4,13 +4,13 @@ from datetime import datetime, timezone, date
 import uuid
 
 from models import PayoutCreate
-from auth import get_current_user, require_owner
+from auth import require_roles
 
 router = APIRouter(prefix="/api/payouts", tags=["payouts"])
 
 
 @router.get("/queue")
-async def queue(request: Request, _u: dict = Depends(get_current_user)):
+async def queue(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     """Aggregated pending balance per consignor."""
     db = request.app.state.db
     pipeline = [
@@ -57,7 +57,7 @@ async def queue(request: Request, _u: dict = Depends(get_current_user)):
 
 
 @router.get("/history")
-async def history(request: Request, _u: dict = Depends(get_current_user)):
+async def history(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     db = request.app.state.db
     payouts = await db.payouts.find({}, {"_id": 0}).sort("date_paid", -1).to_list(5000)
     cids = list({p["consignor_id"] for p in payouts})
@@ -71,7 +71,7 @@ async def history(request: Request, _u: dict = Depends(get_current_user)):
 
 @router.post("")
 async def process_payout(
-    body: PayoutCreate, request: Request, owner: dict = Depends(require_owner)
+    body: PayoutCreate, request: Request, owner: dict = Depends(require_roles("admin", "manager"))
 ):
     db = request.app.state.db
     # Get all pending sales for this consignor sorted by oldest first

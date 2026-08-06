@@ -49,7 +49,7 @@ def test_notion_inventory_headers():
 
 def test_normalize_and_parse():
     assert normalize_external_id("2001") == "2001"
-    assert normalize_external_id("EE-001") == "EE-001"
+    assert normalize_external_id("2007") == "2007"
     assert parse_money("$14.95") == (14.95, True)
     assert parse_money("") == (None, True)
     assert parse_money("nope") == (None, False)

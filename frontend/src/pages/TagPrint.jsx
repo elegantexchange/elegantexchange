@@ -46,6 +46,9 @@ export default function TagPrint() {
                     {STORE.name.toUpperCase()}
                   </div>
                   <div className="font-bold text-lg mt-2 tracking-tight">
+                    {it.consignor_id}
+                  </div>
+                  <div className="text-[9px] text-neutral-500 tracking-wider mt-0.5">
                     {it.item_id}
                   </div>
                 </div>

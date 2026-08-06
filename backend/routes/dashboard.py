@@ -98,39 +98,54 @@ async def dashboard(
         this_period.append({"day": d_cur, "amount": round(by_day.get(d_cur, 0), 2)})
         prev_period.append({"day": d_prev, "amount": round(by_day.get(d_prev, 0), 2)})
 
-    # Recent activity (sales, intakes, payouts)
+    # Recent activity — this calendar week only (Mon–today)
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
     activity = []
-    async for s in db.sales.find({}, {"_id": 0}).sort("created_at", -1).limit(8):
+    async for s in db.sales.find(
+        {"sale_date": {"$gte": week_start}}, {"_id": 0}
+    ).sort("created_at", -1).limit(20):
         c = await db.consignors.find_one({"consignor_id": s["consignor_id"]}, {"_id": 0})
         activity.append(
             {
                 "type": "sale",
                 "ts": s.get("created_at", ""),
-                "label": f"Sale · {s['item_id']} · ${s['sale_price']:.2f}",
-                "sub": c["full_name"] if c else "",
+                # Boutique ID on the tag is the consignor number (2XXX)
+                "label": f"Sale · {s['consignor_id']} · ${s['sale_price']:.2f}",
+                "sub": (
+                    f"{c['full_name']} · {s['item_id']}"
+                    if c
+                    else s["item_id"]
+                ),
             }
         )
-    async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(5):
+    async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
+        ts = c.get("created_at", "")
+        if not ts or ts[:10] < week_start:
+            continue
         activity.append(
             {
                 "type": "intake",
-                "ts": c.get("created_at", ""),
+                "ts": ts,
                 "label": f"New consignor · {c['consignor_id']}",
                 "sub": c["full_name"],
             }
         )
-    async for p in db.payouts.find({}, {"_id": 0}).sort("created_at", -1).limit(5):
+    async for p in db.payouts.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
+        ts = p.get("created_at", "")
+        paid = p.get("date_paid") or ""
+        if (not ts or ts[:10] < week_start) and (not paid or paid < week_start):
+            continue
         c = await db.consignors.find_one({"consignor_id": p["consignor_id"]}, {"_id": 0})
         activity.append(
             {
                 "type": "payout",
-                "ts": p.get("created_at", ""),
+                "ts": ts or f"{paid}T12:00:00+00:00",
                 "label": f"Payout · ${p['amount']:.2f} · {p['method']}",
                 "sub": c["full_name"] if c else "",
             }
         )
     activity.sort(key=lambda x: x["ts"], reverse=True)
-    activity = activity[:10]
+    activity = activity[:30]
 
     return {
         "sales_today": round(sales_today_total, 2),
