@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -52,12 +53,26 @@ async def lifespan(app: FastAPI):
     db = client[db_name]
     app.state.mongo_client = client
     app.state.db = db
-    try:
-        await client.admin.command("ping")
-        logger.info("MongoDB ping OK")
-    except Exception as e:
-        logger.exception("MongoDB ping failed — check MONGO_URL and Atlas Network Access")
-        raise RuntimeError(f"MongoDB ping failed: {e}") from e
+
+    last_err: Exception | None = None
+    for attempt in range(1, 6):
+        try:
+            await client.admin.command("ping")
+            logger.info("MongoDB ping OK (attempt %s)", attempt)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "MongoDB ping failed (attempt %s/5): %s", attempt, e
+            )
+            if attempt < 5:
+                await asyncio.sleep(min(2 ** attempt, 15))
+    if last_err is not None:
+        logger.exception(
+            "MongoDB ping failed — check MONGO_URL and Atlas Network Access"
+        )
+        raise RuntimeError(f"MongoDB ping failed: {last_err}") from last_err
 
     try:
         await db.users.create_index("email", unique=True)
@@ -127,3 +142,17 @@ for r in (
 @app.get("/api")
 async def root():
     return {"app": "The Elegant Exchange", "ok": True}
+
+
+@app.get("/api/health")
+async def health():
+    """Railway healthcheck — confirms process is up; pings Mongo when available."""
+    db_ok = False
+    try:
+        client = getattr(app.state, "mongo_client", None)
+        if client is not None:
+            await client.admin.command("ping")
+            db_ok = True
+    except Exception:
+        db_ok = False
+    return {"ok": True, "db": db_ok}
