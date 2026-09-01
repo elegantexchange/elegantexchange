@@ -41,7 +41,14 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
     out = []
     for s in sales:
         info = imap.get(s["item_id"]) or {}
-        s["consignor_name"] = cmap.get(s["consignor_id"], "")
+        from house_stock import HOUSE_DISPLAY_NAME, is_house_consignor_id, is_house_item
+
+        if is_house_consignor_id(s.get("consignor_id")) or is_house_item(s):
+            s["consignor_name"] = HOUSE_DISPLAY_NAME
+            s["is_house"] = True
+        else:
+            s["consignor_name"] = cmap.get(s["consignor_id"], "")
+            s.setdefault("is_house", False)
         s["description"] = info.get("description", "")
         s["media"] = list(info.get("media") or [])
         s["source"] = "square" if s.get("square_transaction_id") else "manual"

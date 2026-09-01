@@ -19,6 +19,8 @@ async def queue(request: Request, _u: dict = Depends(require_roles("admin"))):
         {"status": "Active", "period_end": {"$lte": today}},
         {"$set": {"status": "Expired"}},
     )
+    from house_stock import is_house_consignor, is_house_consignor_id
+
     expired_map: dict[str, int] = {}
     async for row in db.inventory.aggregate(
         [
@@ -44,8 +46,12 @@ async def queue(request: Request, _u: dict = Depends(require_roles("admin"))):
     rows = []
     async for r in db.sales.aggregate(pipeline):
         consignor_id = r["_id"]
+        if not consignor_id or is_house_consignor_id(consignor_id):
+            continue
+        if float(r.get("balance") or 0) <= 0:
+            continue
         c = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
-        if not c:
+        if not c or is_house_consignor(c):
             continue
         last_payout = await db.payouts.find_one(
             {"consignor_id": consignor_id}, sort=[("date_paid", -1)]

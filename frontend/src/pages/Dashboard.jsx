@@ -9,6 +9,7 @@ import {
   Receipt,
   Users,
   UserPlus,
+  Home,
   AlertTriangle,
   Clock,
   TrendingDown,
@@ -38,6 +39,7 @@ import {
   ResponsiveModalTitle,
 } from "@/components/ResponsiveModal";
 import { toast } from "sonner";
+import IntakeDialog from "@/components/IntakeDialog";
 
 const ease = [0.22, 1, 0.36, 1];
 const panel =
@@ -68,8 +70,15 @@ export default function Dashboard() {
   const [pendingDropOffs, setPendingDropOffs] = useState([]);
   const [period, setPeriod] = useState("week");
   const [dropOffOpen, setDropOffOpen] = useState(false);
+  const [houseIntakeOpen, setHouseIntakeOpen] = useState(false);
   const [attentionKind, setAttentionKind] = useState(null);
+  const [activityExpanded, setActivityExpanded] = useState(false);
   const nav = useNavigate();
+
+  const unpaidBalances = useMemo(() => {
+    const alerts = data?.alerts || {};
+    return alerts.pending_balances || alerts.stale_balances || [];
+  }, [data]);
 
   const reloadAlerts = () => {
     api.get(`/dashboard?period=${period}`).then((r) => setData(r.data));
@@ -122,7 +131,7 @@ export default function Dashboard() {
     pendingDropOffs.length +
     (data?.alerts.expiring_soon?.length || 0) +
     (data?.alerts.expired?.length || 0) +
-    (showPayouts ? data?.alerts.stale_balances?.length || 0 : 0);
+    (showPayouts ? unpaidBalances.length : 0);
 
   const secondaryStats = [
     {
@@ -134,17 +143,27 @@ export default function Dashboard() {
     showPayouts && {
       label: "Payouts owed",
       value: fmtMoney(data?.payouts_owed),
-      sub: "Pending balances",
+      sub:
+        unpaidBalances.length > 0
+          ? `${unpaidBalances.length} unsettled`
+          : "Pending balances",
       testid: "stat-payouts-owed",
       accent: true,
+      onClick: () => nav("/payouts"),
     },
     {
       label: "Consignors",
       value: data?.total_consignors ?? "—",
       sub: "Active relationships",
       testid: "stat-total-consignors",
+      onClick: () => nav("/consignors"),
     },
   ].filter(Boolean);
+
+  const activityPreview = activityExpanded
+    ? weekActivity
+    : weekActivity.slice(0, 5);
+  const activityMore = weekActivity.length - 5;
 
   return (
     <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5 md:space-y-6">
@@ -236,31 +255,41 @@ export default function Dashboard() {
 
       {/* Secondary metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {secondaryStats.map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            data-testid={stat.testid}
-            custom={i}
-            variants={fadeUp}
-            initial="hidden"
-            animate="show"
-            whileHover={{ y: -3 }}
-            transition={{ type: "spring", stiffness: 380, damping: 26 }}
-            className={`${panel} p-4 sm:p-5`}
-          >
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
-              {stat.label}
-            </div>
-            <div
-              className={`text-2xl font-bold tracking-tight mt-1.5 tabular-nums ${
-                stat.accent ? "text-[var(--ee-magenta)]" : "text-[var(--ee-ink)]"
-              }`}
+        {secondaryStats.map((stat, i) => {
+          const Comp = stat.onClick ? "button" : "div";
+          return (
+            <motion.div
+              key={stat.label}
+              custom={i}
+              variants={fadeUp}
+              initial="hidden"
+              animate="show"
+              whileHover={{ y: -3 }}
+              transition={{ type: "spring", stiffness: 380, damping: 26 }}
             >
-              {stat.value}
-            </div>
-            <div className="text-xs text-neutral-500 mt-1">{stat.sub}</div>
-          </motion.div>
-        ))}
+              <Comp
+                type={stat.onClick ? "button" : undefined}
+                data-testid={stat.testid}
+                onClick={stat.onClick}
+                className={`${panel} p-4 sm:p-5 w-full text-left ${
+                  stat.onClick ? "cursor-pointer hover:border-[var(--ee-magenta)]/40" : ""
+                }`}
+              >
+                <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                  {stat.label}
+                </div>
+                <div
+                  className={`text-2xl font-bold tracking-tight mt-1.5 tabular-nums ${
+                    stat.accent ? "text-[var(--ee-magenta)]" : "text-[var(--ee-ink)]"
+                  }`}
+                >
+                  {stat.value}
+                </div>
+                <div className="text-xs text-neutral-500 mt-1">{stat.sub}</div>
+              </Comp>
+            </motion.div>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
@@ -369,7 +398,7 @@ export default function Dashboard() {
         >
           <h2 className="ee-section-header text-base mb-2 shrink-0">Recent activity</h2>
           <ul className="ee-scroll-hide flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
-            {weekActivity.map((a, idx) => (
+            {activityPreview.map((a, idx) => (
               <motion.li
                 key={`${a.ts}-${idx}`}
                 custom={idx}
@@ -390,6 +419,29 @@ export default function Dashboard() {
             {weekActivity.length === 0 && (
               <li className="text-sm text-neutral-400 font-light">No activity this week.</li>
             )}
+            {!activityExpanded && activityMore > 0 ? (
+              <li>
+                <button
+                  type="button"
+                  data-testid="activity-show-more"
+                  onClick={() => setActivityExpanded(true)}
+                  className="text-[11px] text-[var(--ee-magenta)] font-semibold"
+                >
+                  +{activityMore} more
+                </button>
+              </li>
+            ) : null}
+            {activityExpanded && weekActivity.length > 5 ? (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setActivityExpanded(false)}
+                  className="text-[11px] text-neutral-500 font-semibold hover:text-[var(--ee-magenta)]"
+                >
+                  Show less
+                </button>
+              </li>
+            ) : null}
           </ul>
         </motion.section>
       </div>
@@ -562,15 +614,13 @@ export default function Dashboard() {
                 onClick={() => setAttentionKind("unpaid")}
                 className="w-full text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5 hover:text-[var(--ee-magenta)] text-left"
               >
-                <Clock size={12} className="shrink-0" /> Unpaid · 14+ days
-                {(data?.alerts.stale_balances || []).length > 0 ? (
-                  <span className="ee-alerts-col-meta">
-                    {(data?.alerts.stale_balances || []).length}
-                  </span>
+                <Clock size={12} className="shrink-0" /> Payouts owed
+                {unpaidBalances.length > 0 ? (
+                  <span className="ee-alerts-col-meta">{unpaidBalances.length}</span>
                 ) : null}
               </button>
               <ul className="ee-alerts-list space-y-2 text-sm ee-scroll-hide">
-                {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
+                {unpaidBalances.slice(0, 5).map((b) => (
                   <li key={b.consignor_id} className="min-w-0">
                     <button
                       type="button"
@@ -595,17 +645,17 @@ export default function Dashboard() {
                     </button>
                   </li>
                 ))}
-                {(!data?.alerts.stale_balances || data.alerts.stale_balances.length === 0) && (
+                {unpaidBalances.length === 0 && (
                   <li className="text-xs text-neutral-400 font-light">All clear.</li>
                 )}
-                {(data?.alerts.stale_balances || []).length > 5 ? (
+                {unpaidBalances.length > 5 ? (
                   <li>
                     <button
                       type="button"
                       onClick={() => setAttentionKind("unpaid")}
                       className="text-[11px] text-[var(--ee-magenta)] font-semibold"
                     >
-                      +{data.alerts.stale_balances.length - 5} more
+                      +{unpaidBalances.length - 5} more
                     </button>
                   </li>
                 ) : null}
@@ -618,6 +668,16 @@ export default function Dashboard() {
       <DropOffStartDialog
         open={dropOffOpen}
         onClose={() => setDropOffOpen(false)}
+        onHouseItems={() => {
+          setDropOffOpen(false);
+          setHouseIntakeOpen(true);
+        }}
+      />
+      <IntakeDialog
+        open={houseIntakeOpen}
+        onClose={() => setHouseIntakeOpen(false)}
+        presetMode="house"
+        onDone={reloadAlerts}
       />
       <AttentionResolveDialog
         kind={attentionKind}
@@ -626,22 +686,24 @@ export default function Dashboard() {
         pendingDropOffs={pendingDropOffs}
         expiring={data?.alerts?.expiring_soon || []}
         expired={data?.alerts?.expired || []}
-        unpaid={data?.alerts?.stale_balances || []}
+        unpaid={unpaidBalances}
       />
     </div>
   );
 }
 
-function DropOffStartDialog({ open, onClose }) {
+function DropOffStartDialog({ open, onClose, onHouseItems }) {
   const nav = useNavigate();
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState(null);
+  const [who, setWho] = useState("consignor"); // consignor | house
 
   useEffect(() => {
     if (!open) return;
     setSearch("");
     setBusyId(null);
+    setWho("consignor");
     api
       .get("/consignors")
       .then((r) => setList(r.data || []))
@@ -689,90 +751,139 @@ function DropOffStartDialog({ open, onClose }) {
         </ResponsiveModalHeader>
 
         <div className="space-y-3">
-          <p className="text-[13px] text-neutral-500">
-            Find someone on file, or add a new consignor.
-          </p>
+          <p className="text-[13px] text-neutral-500">Who is this drop for?</p>
 
-          <div>
-            <Input
-              data-testid="drop-off-consignor-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, ID, phone…"
-              autoFocus
-            />
-            <AnimatePresence initial={false}>
-              {listOpen ? (
-                <motion.div
-                  key="drop-results"
-                  initial={{ height: 0, opacity: 0, marginTop: 0 }}
-                  animate={{ height: "auto", opacity: 1, marginTop: 8 }}
-                  exit={{ height: 0, opacity: 0, marginTop: 0 }}
-                  transition={{ duration: 0.28, ease }}
-                  className="overflow-hidden"
+          <div
+            className="inline-flex w-full rounded-[8px] border border-[var(--ee-sidebar-border)] p-0.5 bg-[var(--ee-panel)]"
+            role="tablist"
+            aria-label="Drop for"
+          >
+            {[
+              ["consignor", "Consignor", UserPlus],
+              ["house", "House", Home],
+            ].map(([id, label, Icon]) => {
+              const on = who === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  data-testid={`drop-off-who-${id}`}
+                  onClick={() => setWho(id)}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-[6px] text-[11px] font-semibold tracking-[0.06em] uppercase transition-colors ${
+                    on
+                      ? "bg-[var(--ee-magenta)] text-white"
+                      : "text-neutral-600 hover:bg-black/[0.03]"
+                  }`}
                 >
-                  <motion.div
-                    initial={{ y: -6 }}
-                    animate={{ y: 0 }}
-                    exit={{ y: -4 }}
-                    transition={{ duration: 0.28, ease }}
-                    className="max-h-44 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[8px] ee-scroll-hide bg-[var(--ee-panel)] shadow-[0_8px_24px_rgba(0,0,0,0.04)]"
-                  >
-                    {filtered.map((c, idx) => (
-                      <motion.button
-                        key={c.consignor_id}
-                        type="button"
-                        data-testid={`drop-off-pick-${c.consignor_id}`}
-                        disabled={Boolean(busyId)}
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{
-                          delay: Math.min(idx, 8) * 0.02,
-                          duration: 0.2,
-                          ease,
-                        }}
-                        onClick={() => startExisting(c)}
-                        className="w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)] disabled:opacity-60"
-                      >
-                        <div className="font-semibold truncate">
-                          {c.full_name || "—"}
-                          {busyId === c.consignor_id ? "…" : ""}
-                        </div>
-                        <div className="text-[11px] text-neutral-500 truncate mt-0.5">
-                          {c.consignor_id}
-                          {c.phone ? ` · ${c.phone}` : ""}
-                        </div>
-                      </motion.button>
-                    ))}
-                    {filtered.length === 0 && (
-                      <div className="px-3 py-3 text-sm text-neutral-400 font-light">
-                        No consignors match.
-                      </div>
-                    )}
-                  </motion.div>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
+                  <Icon size={13} />
+                  {label}
+                </button>
+              );
+            })}
           </div>
 
-          <button
-            type="button"
-            data-testid="drop-off-add-new"
-            onClick={addNew}
-            className="w-full flex items-center gap-2.5 rounded-[8px] border border-dashed border-[var(--ee-sidebar-border)] px-3 py-3 text-left hover:border-[var(--ee-magenta)] hover:bg-[var(--ee-magenta-soft)] transition-colors"
-          >
-            <span className="w-8 h-8 rounded-full bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)] flex items-center justify-center shrink-0">
-              <UserPlus size={16} />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-[var(--ee-ink)]">
-                Add new consignor
-              </span>
-              <span className="block text-[12px] text-neutral-500 mt-0.5">
-                Opens the drop-off intake on this device
-              </span>
-            </span>
-          </button>
+          {who === "consignor" ? (
+            <>
+              <div>
+                <Input
+                  data-testid="drop-off-consignor-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search name, ID, phone…"
+                  autoFocus
+                />
+                <AnimatePresence initial={false}>
+                  {listOpen ? (
+                    <motion.div
+                      key="drop-results"
+                      initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                      animate={{ height: "auto", opacity: 1, marginTop: 8 }}
+                      exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                      transition={{ duration: 0.28, ease }}
+                      className="overflow-hidden"
+                    >
+                      <motion.div
+                        initial={{ y: -6 }}
+                        animate={{ y: 0 }}
+                        exit={{ y: -4 }}
+                        transition={{ duration: 0.28, ease }}
+                        className="max-h-44 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[8px] ee-scroll-hide bg-[var(--ee-panel)] shadow-[0_8px_24px_rgba(0,0,0,0.04)]"
+                      >
+                        {filtered.map((c, idx) => (
+                          <motion.button
+                            key={c.consignor_id}
+                            type="button"
+                            data-testid={`drop-off-pick-${c.consignor_id}`}
+                            disabled={Boolean(busyId)}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{
+                              delay: Math.min(idx, 8) * 0.02,
+                              duration: 0.2,
+                              ease,
+                            }}
+                            onClick={() => startExisting(c)}
+                            className="w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)] disabled:opacity-60"
+                          >
+                            <div className="font-semibold truncate">
+                              {c.full_name || "—"}
+                              {busyId === c.consignor_id ? "…" : ""}
+                            </div>
+                            <div className="text-[11px] text-neutral-500 truncate mt-0.5">
+                              {c.consignor_id}
+                              {c.phone ? ` · ${c.phone}` : ""}
+                            </div>
+                          </motion.button>
+                        ))}
+                        {filtered.length === 0 && (
+                          <div className="px-3 py-3 text-sm text-neutral-400 font-light">
+                            No consignors match.
+                          </div>
+                        )}
+                      </motion.div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+
+              <button
+                type="button"
+                data-testid="drop-off-add-new"
+                onClick={addNew}
+                className="w-full flex items-center gap-2.5 rounded-[8px] border border-dashed border-[var(--ee-sidebar-border)] px-3 py-3 text-left hover:border-[var(--ee-magenta)] hover:bg-[var(--ee-magenta-soft)] transition-colors"
+              >
+                <span className="w-8 h-8 rounded-full bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)] flex items-center justify-center shrink-0">
+                  <UserPlus size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[var(--ee-ink)]">
+                    Add new consignor
+                  </span>
+                  <span className="block text-[12px] text-neutral-500 mt-0.5">
+                    Full intake on this device
+                  </span>
+                </span>
+              </button>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-[8px] border border-[var(--ee-sidebar-border)] bg-black/[0.02] px-3 py-3 text-[13px] text-neutral-600">
+                Tags as{" "}
+                <span className="font-semibold text-[var(--ee-ink)]">In House</span>.
+                No agreement. Sold pieces stay 100% store.
+              </div>
+              <button
+                type="button"
+                data-testid="drop-off-add-house-items"
+                onClick={onHouseItems}
+                className="w-full ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white rounded-[8px] py-3 text-sm font-semibold"
+              >
+                Add house items
+              </button>
+            </div>
+          )}
 
           <div className="flex justify-end pt-1">
             <Button
@@ -804,8 +915,8 @@ const ATTENTION_META = {
     blurb: "Select pieces, then mark donated or returned.",
   },
   unpaid: {
-    title: "Unpaid · 14+ days",
-    blurb: "Balances with oldest pending sale over two weeks.",
+    title: "Payouts owed",
+    blurb: "Unsettled balances — process from here or open Payouts.",
   },
 };
 

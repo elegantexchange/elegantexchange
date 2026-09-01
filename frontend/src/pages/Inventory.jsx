@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Flag, LayoutGrid, List, Pencil, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { Camera, Flag, Home, LayoutGrid, List, Pencil, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -26,9 +26,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -43,7 +40,6 @@ import { isManagerOrAdmin, roleOf } from "@/lib/auth";
 const ITEM_STATUSES = ["Active", "Sold", "Expired", "Donated", "Returned"];
 
 const STATUS_FILTERS = [
-  "All",
   "Active",
   "Expiring Soon",
   "Expired",
@@ -53,7 +49,23 @@ const STATUS_FILTERS = [
 ];
 const STATUS_FILTER_LABELS = {
   Active: "On floor",
+  "Expiring Soon": "Expiring soon",
 };
+
+function isHouseItem(i) {
+  if (!i) return false;
+  if (i.is_house === true || (i.ownership || "").toLowerCase() === "house") {
+    return true;
+  }
+  const cid = (i.consignor_id || "").trim().toUpperCase();
+  if (cid === "HOUSE" || cid === "2999") return true;
+  const name = (i.consignor_name || "").trim().toLowerCase();
+  return name === "in house" || name === "boutique (house)";
+}
+
+function ownerLabel(i) {
+  return isHouseItem(i) ? "In House" : i?.consignor_name || i?.consignor_id || "—";
+}
 
 const FLAG_LABELS = {
   missing_description: "Missing description",
@@ -225,9 +237,8 @@ export default function Inventory() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [categoryFilter, setCategoryFilter] = useState("All");
-  const [rackFilter, setRackFilter] = useState("All");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [houseOnly, setHouseOnly] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [focusId, setFocusId] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -276,26 +287,22 @@ export default function Inventory() {
     [items]
   );
 
-  const racks = useMemo(() => {
-    const set = new Set();
-    for (const i of items) {
-      if (i.rack) set.add(i.rack);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [items]);
+  const houseCount = useMemo(
+    () => items.filter((i) => isHouseItem(i)).length,
+    [items]
+  );
 
   const filtered = useMemo(() => {
     const term = q.toLowerCase().trim();
     return items.filter((i) => {
+      if (houseOnly && !isHouseItem(i)) return false;
       if (flaggedOnly && !(i.needs_review || (i.import_flags || []).length)) {
         return false;
       }
       if (term) {
-        const hay = `${i.item_id} ${i.text_id || ""} ${i.description} ${i.consignor_id} ${i.consignor_name} ${i.rack || ""} ${i.color || ""}`.toLowerCase();
+        const hay = `${i.item_id} ${i.text_id || ""} ${i.description} ${i.consignor_id} ${i.consignor_name} ${i.rack || ""} ${i.color || ""} ${isHouseItem(i) ? "in house house" : ""}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
-      if (categoryFilter !== "All" && i.category !== categoryFilter) return false;
-      if (rackFilter !== "All" && (i.rack || "") !== rackFilter) return false;
       if (statusFilter === "All") return true;
       if (statusFilter === "Expiring Soon") {
         return (
@@ -310,7 +317,7 @@ export default function Inventory() {
       }
       return i.status === statusFilter;
     });
-  }, [items, q, statusFilter, categoryFilter, rackFilter, flaggedOnly, today, sevenAhead]);
+  }, [items, q, statusFilter, flaggedOnly, houseOnly, today, sevenAhead]);
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -523,17 +530,11 @@ export default function Inventory() {
       testid: "chip-status",
       clear: () => setStatusFilter("All"),
     },
-    rackFilter !== "All" && {
-      key: "rack",
-      label: `Rack ${rackFilter}`,
-      testid: "chip-rack",
-      clear: () => setRackFilter("All"),
-    },
-    categoryFilter !== "All" && {
-      key: "category",
-      label: categoryFilter,
-      testid: "chip-category",
-      clear: () => setCategoryFilter("All"),
+    houseOnly && {
+      key: "house",
+      label: houseCount > 0 ? `In House (${houseCount})` : "In House",
+      testid: "chip-house",
+      clear: () => setHouseOnly(false),
     },
     flaggedOnly && {
       key: "review",
@@ -545,8 +546,7 @@ export default function Inventory() {
 
   const clearAllFilters = () => {
     setStatusFilter("All");
-    setRackFilter("All");
-    setCategoryFilter("All");
+    setHouseOnly(false);
     setFlaggedOnly(false);
   };
 
@@ -565,6 +565,7 @@ export default function Inventory() {
             </h1>
             <p className="text-[13px] text-neutral-500 mt-0.5 break-words">
               {items.length} item{items.length === 1 ? "" : "s"} · {activeCount} on floor
+              {houseCount ? ` · ${houseCount} in house` : ""}
               {flaggedCount ? ` · ${flaggedCount} need review` : ""}
               {` · ${filtered.length} shown`}
             </p>
@@ -657,53 +658,31 @@ export default function Inventory() {
                 <span className="hidden sm:inline">Filter</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger data-testid="filter-status-menu">
-                  Status
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                  {STATUS_FILTERS.filter((f) => f !== "All").map((f) => (
-                    <DropdownMenuItem
-                      key={f}
-                      data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
-                      onClick={() => setStatusFilter(f)}
-                    >
-                      {STATUS_FILTER_LABELS[f] || f}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger data-testid="filter-rack">Rack</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                  {racks.length === 0 ? (
-                    <DropdownMenuItem disabled>No racks yet</DropdownMenuItem>
-                  ) : (
-                    racks.map((r) => (
-                      <DropdownMenuItem key={r} onClick={() => setRackFilter(r)}>
-                        {r}
-                      </DropdownMenuItem>
-                    ))
-                  )}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger data-testid="filter-category">
-                  Category
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                  {CATEGORIES.map((c) => (
-                    <DropdownMenuItem key={c} onClick={() => setCategoryFilter(c)}>
-                      {c}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+            <DropdownMenuContent align="end" className="min-w-[11rem] p-1">
+              {STATUS_FILTERS.map((f) => (
+                <DropdownMenuItem
+                  key={f}
+                  data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
+                  onClick={() => setStatusFilter(f)}
+                  className="text-[13px]"
+                >
+                  {STATUS_FILTER_LABELS[f] || f}
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="filter-house-btn"
+                onClick={() => setHouseOnly(true)}
+                className="text-[13px]"
+              >
+                <Home size={14} className="mr-2" />
+                In House
+                {houseCount > 0 ? ` (${houseCount})` : ""}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="filter-flagged-inventory-btn"
                 onClick={() => setFlaggedOnly(true)}
+                className="text-[13px]"
               >
                 <Flag size={14} className="mr-2" />
                 Needs review
@@ -863,7 +842,14 @@ export default function Inventory() {
                           )}
                         </div>
                         <div className="text-[10px] text-neutral-500 truncate mt-0.5">
-                          {i.item_id} · {i.rack || "—"} · {i.status}
+                          {i.item_id}
+                          {isHouseItem(i)
+                            ? " · In House"
+                            : i.rack
+                              ? ` · ${i.rack}`
+                              : ""}
+                          {" · "}
+                          {i.status}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -956,7 +942,10 @@ export default function Inventory() {
                             {i.description}
                           </div>
                           <div className="text-[11px] text-neutral-500 truncate mt-0.5">
-                            {i.item_id} · {i.rack || "—"}
+                            {i.item_id}
+                            {isHouseItem(i)
+                              ? " · In House"
+                              : ` · ${i.rack || "—"}`}
                           </div>
                         </div>
                         <TonePill tone={tone} />
@@ -1055,7 +1044,7 @@ export default function Inventory() {
                         {fmtMoney(i.asking_price)}
                       </td>
                       <td className="px-3 py-2.5 text-neutral-600 max-w-[160px] truncate">
-                        {i.consignor_name || i.consignor_id}
+                        {ownerLabel(i)}
                       </td>
                     </tr>
                   );
@@ -1178,15 +1167,19 @@ export default function Inventory() {
                   ["Period end", fmtDate(focused.period_end)],
                   ["ID", focused.text_id || "—"],
                   [
-                    "Consignor",
-                    <button
-                      key="c"
-                      type="button"
-                      onClick={() => nav(`/consignors/${focused.consignor_id}`)}
-                      className="block w-full max-w-full hover:text-[var(--ee-magenta)] text-left truncate"
-                    >
-                      {focused.consignor_name} · {focused.consignor_id}
-                    </button>,
+                    isHouseItem(focused) ? "Owner" : "Consignor",
+                    isHouseItem(focused) ? (
+                      <span key="c">In House</span>
+                    ) : (
+                      <button
+                        key="c"
+                        type="button"
+                        onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                        className="block w-full max-w-full hover:text-[var(--ee-magenta)] text-left truncate"
+                      >
+                        {focused.consignor_name} · {focused.consignor_id}
+                      </button>
+                    ),
                   ],
                 ].map(([label, value]) => (
                   <div key={label} className="ee-meta-cell">

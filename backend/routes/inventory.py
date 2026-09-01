@@ -21,12 +21,23 @@ from id_gen import next_item_id
 from boutique_settings import current_consignor_split_pct
 from categorize import capitalize_description, infer_category
 from floor_operator import operator_from_request
+from house_stock import (
+    HOUSE_CONSIGNOR_ID,
+    HOUSE_DISPLAY_NAME,
+    ensure_house_consignor,
+    is_house_consignor,
+)
 from csv_import_utils import (
     cell,
     map_headers,
     normalize_external_id,
     parse_flexible_date,
     parse_money,
+)
+from sale_ops import (
+    insert_sale,
+    insert_pending_sale,
+    cancel_pending_sales_for_items,
 )
 from ai_scan import ScanAssistError, analyze_item_and_tag, validate_image
 
@@ -119,13 +130,19 @@ _HEADER_ALIASES = {
         "image",
     },
     "status": {"status", "item_status"},
+    "sale_price": {
+        "sale_price",
+        "sold_price",
+        "sold_for",
+        "price_sold",
+    },
     "notes": {"notes", "note", "comments", "extra_notes"},
 }
 _TEMPLATE_CSV = (
-    "ID,text ID,style/description,rack,date,color,size,price,files and media\n"
-    "2001,BAG-01,Cream textured bag,gold rack (1),2026-06-01,cream,,14.95,\n"
-    "2007,,Pink bag with gold chain,gold rack (1),2026-06-01,pink,,14.95,\n"
-    "2016,,,,gold rack (1),,,,\n"
+    "ID,text ID,style/description,rack,date,color,size,price,status,sale_price,files and media\n"
+    "2001,BAG-01,Cream textured bag,gold rack (1),2026-06-01,cream,,14.95,Active,,\n"
+    "2007,,Pink bag with gold chain,gold rack (1),2026-06-01,pink,,14.95,Sold,12.00,\n"
+    "2016,,,,gold rack (1),,,,,,\n"
 )
 
 
@@ -314,13 +331,21 @@ async def list_inventory(request: Request, _u: dict = Depends(get_current_user))
     db = request.app.state.db
     await _refresh_expired(db)
     items = await db.inventory.find({}, {"_id": 0}).sort("date_in", -1).to_list(10000)
-    # Attach consignor name
+    # Attach consignor name (house stock always shows as "In House")
+    from house_stock import HOUSE_DISPLAY_NAME, is_house_item
+
     cids = list({i["consignor_id"] for i in items})
     cmap = {}
     async for c in db.consignors.find({"consignor_id": {"$in": cids}}, {"_id": 0}):
-        cmap[c["consignor_id"]] = c["full_name"]
+        cmap[c["consignor_id"]] = c
     for i in items:
-        i["consignor_name"] = cmap.get(i["consignor_id"], "")
+        c = cmap.get(i["consignor_id"])
+        if is_house_item(i, c):
+            i["consignor_name"] = HOUSE_DISPLAY_NAME
+            i["is_house"] = True
+        else:
+            i["consignor_name"] = (c or {}).get("full_name", "") or ""
+            i.setdefault("is_house", False)
         i.setdefault("import_flags", [])
         i.setdefault("needs_review", bool(i.get("import_flags")))
         i.setdefault("rack", "")
@@ -335,12 +360,17 @@ async def create_item(
     body: InventoryItemCreate, request: Request, _u: dict = Depends(get_current_user)
 ):
     db = request.app.state.db
-    consignor = await db.consignors.find_one({"consignor_id": body.consignor_id})
+    cid = (body.consignor_id or "").strip()
+    if cid.upper() == HOUSE_CONSIGNOR_ID or cid == "2999":
+        await ensure_house_consignor(db)
+        cid = HOUSE_CONSIGNOR_ID if cid.upper() == HOUSE_CONSIGNOR_ID else cid
+    consignor = await db.consignors.find_one({"consignor_id": cid})
     if not consignor:
         raise HTTPException(status_code=400, detail="Unknown consignor")
+    house = is_house_consignor(consignor)
     date_in = body.date_in or _today_iso()
-    item_id = await next_item_id(db, body.consignor_id)
-    split_pct = await current_consignor_split_pct(db)
+    item_id = await next_item_id(db, cid)
+    split_pct = 0.0 if house else await current_consignor_split_pct(db)
     description = capitalize_description(body.description)
     category = body.category or infer_category(description, body.rack or "")
     if category not in CATEGORIES:
@@ -348,7 +378,7 @@ async def create_item(
     doc = {
         "id": str(uuid.uuid4()),
         "item_id": item_id,
-        "consignor_id": body.consignor_id,
+        "consignor_id": cid,
         "description": description,
         "category": category if category in CATEGORIES else "Other",
         "size": body.size or "",
@@ -364,6 +394,8 @@ async def create_item(
         "text_id": body.text_id or "",
         "media": _normalize_media(body.media or []),
         "consignor_split_pct": split_pct,
+        "is_house": house,
+        "ownership": "house" if house else "consignor",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "operator_name": operator_from_request(request),
         "created_by": _u.get("email") or "",
@@ -379,22 +411,33 @@ async def create_items_batch(
 ):
     """Batch intake: { consignor_id, items: [...] }"""
     db = request.app.state.db
-    consignor_id = payload.get("consignor_id")
+    consignor_id = (payload.get("consignor_id") or "").strip()
     items_in = payload.get("items", [])
+    if consignor_id.upper() == HOUSE_CONSIGNOR_ID or consignor_id == "2999":
+        await ensure_house_consignor(db)
+        if consignor_id.upper() == HOUSE_CONSIGNOR_ID:
+            consignor_id = HOUSE_CONSIGNOR_ID
     consignor = await db.consignors.find_one({"consignor_id": consignor_id})
     if not consignor:
         raise HTTPException(status_code=400, detail="Unknown consignor")
+    house = is_house_consignor(consignor)
     created = []
-    split_pct = await current_consignor_split_pct(db)
+    split_pct = 0.0 if house else await current_consignor_split_pct(db)
     for raw in items_in:
         date_in = raw.get("date_in") or _today_iso()
         item_id = await next_item_id(db, consignor_id)
+        description = capitalize_description(raw.get("description", "") or "")
+        category = raw.get("category", "") or infer_category(
+            description, raw.get("rack", "") or ""
+        )
+        if category not in CATEGORIES:
+            category = "Other"
         doc = {
             "id": str(uuid.uuid4()),
             "item_id": item_id,
             "consignor_id": consignor_id,
-            "description": raw.get("description", ""),
-            "category": raw.get("category", "") or "Other",
+            "description": description,
+            "category": category,
             "size": raw.get("size", ""),
             "condition": raw.get("condition", ""),
             "asking_price": float(raw.get("asking_price", 0)),
@@ -408,6 +451,8 @@ async def create_items_batch(
             "text_id": raw.get("text_id", "") or "",
             "media": list(raw.get("media") or []),
             "consignor_split_pct": split_pct,
+            "is_house": house,
+            "ownership": "house" if house else "consignor",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "operator_name": operator_from_request(request),
             "created_by": _u.get("email") or "",
@@ -415,7 +460,14 @@ async def create_items_batch(
         await db.inventory.insert_one(doc)
         doc.pop("_id", None)
         created.append(doc)
-    return {"items": created, "consignor": {"consignor_id": consignor_id, "full_name": consignor["full_name"]}}
+    return {
+        "items": created,
+        "consignor": {
+            "consignor_id": consignor_id,
+            "full_name": HOUSE_DISPLAY_NAME if house else consignor["full_name"],
+            "is_house": house,
+        },
+    }
 
 
 @router.get("/import/template")
@@ -524,6 +576,7 @@ async def import_inventory(
         date_raw = cell(row, mapping, "date_in")
         media = _parse_media(cell(row, mapping, "media"))
         status_raw = cell(row, mapping, "status")
+        sale_price_raw = cell(row, mapping, "sale_price")
         notes = cell(row, mapping, "notes")
 
         # Completely empty of useful item data
@@ -649,6 +702,40 @@ async def import_inventory(
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.inventory.insert_one(doc)
+        if status == "Sold":
+            sold_amt, sold_ok = parse_money(sale_price_raw)
+            if sold_amt is None or not sold_ok or sold_amt <= 0:
+                sold_amt = asking_price
+            if sold_amt and sold_amt > 0:
+                await insert_sale(
+                    db,
+                    item=doc,
+                    sale_price=float(sold_amt),
+                    notes="Imported sold item",
+                    sale_date=date_in,
+                    created_by="import",
+                )
+            else:
+                flags = list(flags) + (
+                    ["missing_sale_price"] if "missing_sale_price" not in flags else []
+                )
+                doc["import_flags"] = flags
+                doc["needs_review"] = True
+                await db.inventory.update_one(
+                    {"item_id": item_id},
+                    {"$set": {"import_flags": flags, "needs_review": True}},
+                )
+        elif status == "Expired" and asking_price > 0:
+            await insert_pending_sale(
+                db,
+                item=doc,
+                sale_price=float(asking_price),
+                notes="Expired floor — consignor cut on asking price",
+                source="expired_floor",
+                sale_date=doc.get("period_end") or date_in,
+                created_by="import",
+                mark_sold=False,
+            )
         created_ids.append(item_id)
         if flags:
             flagged_rows.append(
@@ -746,4 +833,7 @@ async def bulk_action(
     await db.inventory.update_many(
         {"item_id": {"$in": body.item_ids}}, {"$set": update}
     )
-    return {"ok": True, "updated": len(body.item_ids)}
+    cancelled = 0
+    if body.action in ("donated", "returned"):
+        cancelled = await cancel_pending_sales_for_items(db, body.item_ids)
+    return {"ok": True, "updated": len(body.item_ids), "cancelled_pendings": cancelled}

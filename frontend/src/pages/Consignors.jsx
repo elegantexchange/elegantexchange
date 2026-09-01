@@ -60,6 +60,14 @@ const TONES = {
     border: "#e8cfe0",
     avatar: "#f0dceb",
   },
+  on_floor: {
+    key: "on_floor",
+    label: "On floor",
+    ink: "#2f5a7a",
+    soft: "#eef4f8",
+    border: "#c8dae6",
+    avatar: "#dde8f0",
+  },
   settled: {
     key: "settled",
     label: "Settled",
@@ -111,37 +119,76 @@ function displayName(c) {
 }
 
 function displayFlags(c) {
-  return (c.import_flags || []).filter((f) => f !== "missing_name");
+  return derivedFlags(c).filter((f) => f !== "missing_name");
+}
+
+function hasContact(c) {
+  return Boolean((c.phone || "").trim() || (c.email || "").trim());
+}
+
+function derivedFlags(c) {
+  const flags = [...(c.import_flags || [])];
+  if (!hasContact(c) && !flags.includes("missing_contact")) {
+    flags.push("missing_contact");
+  }
+  return flags;
+}
+
+function floorCount(c) {
+  const n = c.floor_items ?? c.active_items;
+  return typeof n === "number" ? n : 0;
+}
+
+/** Active items still in period (not expired). */
+function liveCount(c) {
+  if (typeof c.live_items === "number") return c.live_items;
+  return Math.max(0, floorCount(c) - (c.expired_items || 0));
+}
+
+function floorCaption(c) {
+  const live = liveCount(c);
+  const expired = c.expired_items || 0;
+  if (live <= 0 && expired <= 0) return "0 on floor";
+  const parts = [];
+  if (live > 0) parts.push(`${live} active`);
+  if (expired > 0) parts.push(`${expired} expired`);
+  return parts.join(" · ");
 }
 
 function toneFor(c, showFinance) {
-  const flags = c.import_flags || [];
+  const flags = derivedFlags(c);
   const expired = (c.expired_items || 0) > 0;
-  if (c.needs_review || flags.length > 0 || expired) return TONES.review;
-  if (showFinance && (c.payout_due || (c.total_owed || 0) > 0)) return TONES.owed;
+  const needsReview = c.needs_review || flags.length > 0 || expired;
+  const payoutDue = showFinance && (c.total_owed || 0) > 0;
+  const onFloor = liveCount(c) > 0;
+  if (needsReview) return TONES.review;
+  if (payoutDue) return TONES.owed;
+  if (onFloor) return TONES.on_floor;
   return TONES.settled;
 }
 
+function isSettledFloor(c, showFinance) {
+  const payoutDue = showFinance && (c.total_owed || 0) > 0;
+  return !payoutDue && liveCount(c) <= 0 && (c.expired_items || 0) <= 0;
+}
+
 function pillsFor(c, showFinance) {
-  const flags = c.import_flags || [];
+  const flags = derivedFlags(c);
   const expired = (c.expired_items || 0) > 0;
   const needsReview = c.needs_review || flags.length > 0 || expired;
-  const payoutDue =
-    showFinance && (c.payout_due || (c.total_owed || 0) > 0 || expired);
+  const payoutDue = showFinance && (c.total_owed || 0) > 0;
+  const onFloor = liveCount(c) > 0;
   const pills = [];
   if (needsReview) pills.push(TONES.review);
   if (payoutDue) pills.push(TONES.owed);
+  if (onFloor) pills.push(TONES.on_floor);
+  else if (isSettledFloor(c, showFinance)) pills.push(TONES.settled);
   if (!pills.length) pills.push(TONES.settled);
   return pills;
 }
 
 function primaryTone(c, showFinance) {
   return pillsFor(c, showFinance)[0] || TONES.settled;
-}
-
-function floorCount(c) {
-  const n = c.floor_items ?? c.active_items;
-  return typeof n === "number" ? n : 0;
 }
 
 function firstNameKey(name) {
@@ -199,9 +246,11 @@ export default function Consignors() {
   const showFinance = isManagerOrAdmin(user);
   const [list, setList] = useState([]);
   const [q, setQ] = useState("");
-  const [toneFilter, setToneFilter] = useState(null); // review | owed | settled | null
+  const [toneFilter, setToneFilter] = useState(null); // review | owed | on_floor | settled | null
   const [expiredOnly, setExpiredOnly] = useState(false);
+  // Default: named consignors only. Filter → Needs name to see placeholders.
   const [needsNameOnly, setNeedsNameOnly] = useState(false);
+  const [namedOnly, setNamedOnly] = useState(true);
   const [sortBy, setSortBy] = useState("name"); // name | id
   const [view, setView] = useState(readView);
   const [params] = useSearchParams();
@@ -229,41 +278,52 @@ export default function Consignors() {
     }
   }, [view]);
 
-  const flaggedCount = useMemo(
+  // Hide leftover automated test stubs until hygiene removes them
+  const baseList = useMemo(
     () =>
       list.filter(
-        (c) =>
-          c.needs_review ||
-          (c.import_flags || []).length > 0 ||
-          (c.expired_items || 0) > 0
-      ).length,
+        (c) => !/^auto\s+id\s+skip\s+test\b/i.test(c.full_name || "")
+      ),
     [list]
   );
 
-  const totalOwed = useMemo(
-    () => list.reduce((sum, c) => sum + (c.total_owed || 0), 0),
-    [list]
+  const flaggedCount = useMemo(
+    () =>
+      baseList.filter((c) => {
+        const flags = derivedFlags(c);
+        return (
+          c.needs_review ||
+          flags.length > 0 ||
+          (c.expired_items || 0) > 0
+        );
+      }).length,
+    [baseList]
   );
 
   const needsNameCount = useMemo(
-    () => list.filter((c) => needsName(c)).length,
-    [list]
+    () => baseList.filter((c) => needsName(c)).length,
+    [baseList]
   );
 
   const filtered = useMemo(() => {
     const term = q.toLowerCase().trim();
-    const rows = list.filter((c) => {
-      if (needsNameOnly && !needsName(c)) return false;
+    const rows = baseList.filter((c) => {
+      if (needsNameOnly) {
+        if (!needsName(c)) return false;
+      } else if (namedOnly && needsName(c)) {
+        return false;
+      }
       if (expiredOnly && !(c.expired_items > 0)) return false;
       const tone = toneFor(c, showFinance);
       if (toneFilter === "review") {
         if (tone.key !== "review") return false;
       } else if (toneFilter === "owed") {
-        const due =
-          c.payout_due || (c.total_owed || 0) > 0 || (c.expired_items || 0) > 0;
-        if (!due) return false;
+        if (!((c.total_owed || 0) > 0)) return false;
+      } else if (toneFilter === "on_floor") {
+        if (liveCount(c) <= 0) return false;
       } else if (toneFilter === "settled") {
-        if (tone.key !== "settled") return false;
+        // Paid up with no active (non-expired) floor items — independent of review flags
+        if (!isSettledFloor(c, showFinance)) return false;
       }
       if (!term) return true;
       const phoneDigits = (c.phone || "").replace(/\D/g, "");
@@ -299,17 +359,19 @@ export default function Consignors() {
     if (sortBy === "id") {
       sorted.sort(byId);
     } else {
-      // Named first alphabetically; unnamed (“Needs name”) last by ID
-      sorted.sort((a, b) => {
-        const aNeed = needsName(a);
-        const bNeed = needsName(b);
-        if (aNeed !== bNeed) return aNeed ? 1 : -1;
-        if (aNeed && bNeed) return byId(a, b);
-        return byName(a, b);
-      });
+      sorted.sort(byName);
     }
     return sorted;
-  }, [list, q, toneFilter, expiredOnly, needsNameOnly, showFinance, sortBy]);
+  }, [
+    baseList,
+    q,
+    toneFilter,
+    expiredOnly,
+    needsNameOnly,
+    namedOnly,
+    showFinance,
+    sortBy,
+  ]);
 
   const activeChips = useMemo(() => {
     const chips = [];
@@ -317,7 +379,16 @@ export default function Consignors() {
       chips.push({
         key: "needs-name",
         label: "Needs name",
-        clear: () => setNeedsNameOnly(false),
+        clear: () => {
+          setNeedsNameOnly(false);
+          setNamedOnly(true);
+        },
+      });
+    } else if (!namedOnly) {
+      chips.push({
+        key: "all-names",
+        label: "All consignors",
+        clear: () => setNamedOnly(true),
       });
     }
     if (toneFilter === "review") {
@@ -331,6 +402,13 @@ export default function Consignors() {
       chips.push({
         key: "tone-owed",
         label: "Payout due",
+        clear: () => setToneFilter(null),
+      });
+    }
+    if (toneFilter === "on_floor") {
+      chips.push({
+        key: "tone-on-floor",
+        label: "On floor",
         clear: () => setToneFilter(null),
       });
     }
@@ -349,12 +427,13 @@ export default function Consignors() {
       });
     }
     return chips;
-  }, [toneFilter, expiredOnly, needsNameOnly]);
+  }, [toneFilter, expiredOnly, needsNameOnly, namedOnly]);
 
   const clearAllFilters = () => {
     setToneFilter(null);
     setExpiredOnly(false);
     setNeedsNameOnly(false);
+    setNamedOnly(true);
   };
 
   const downloadTemplate = async () => {
@@ -403,15 +482,20 @@ export default function Consignors() {
 
   const metaLine = (
     <>
-      {list.length} consignor{list.length === 1 ? "" : "s"}
-      {showFinance && list.length > 0 ? ` · ${fmtMoney(totalOwed)} owed` : ""}
+      {filtered.length} consignor{filtered.length === 1 ? "" : "s"}
+      {showFinance && filtered.length > 0
+        ? ` · ${fmtMoney(filtered.reduce((sum, c) => sum + (c.total_owed || 0), 0))} owed`
+        : ""}
       {needsNameCount ? (
         <>
           {" · "}
           <button
             type="button"
             data-testid="consignors-meta-needs-name"
-            onClick={() => setNeedsNameOnly(true)}
+            onClick={() => {
+              setNeedsNameOnly(true);
+              setNamedOnly(false);
+            }}
             className="text-[var(--ee-magenta)] font-medium hover:underline"
           >
             {needsNameCount} need a name
@@ -496,15 +580,23 @@ export default function Consignors() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[10.5rem] p-1">
         {[
-          ["filter-needs-name", "Needs name", () => setNeedsNameOnly(true)],
+          ["filter-needs-name", "Needs name", () => {
+            setNeedsNameOnly(true);
+            setNamedOnly(false);
+          }],
           ["filter-needs-review", "Needs review", () => setToneFilter("review")],
           showFinance && [
             "filter-payout-due",
             "Payout due",
             () => setToneFilter("owed"),
           ],
+          ["filter-on-floor", "On floor", () => setToneFilter("on_floor")],
           ["filter-settled", "Settled", () => setToneFilter("settled")],
           ["filter-expired-items", "Expired items", () => setExpiredOnly(true)],
+          ["filter-all-names", "All consignors", () => {
+            setNeedsNameOnly(false);
+            setNamedOnly(false);
+          }],
         ]
           .filter(Boolean)
           .map(([id, label, onClick]) => (
@@ -718,11 +810,11 @@ export default function Consignors() {
                   <div className="text-right text-[11px] text-neutral-500">
                     {showFinance ? (
                       <>
-                        <div>{floorCount(c)} on floor</div>
+                        <div>{floorCaption(c)}</div>
                         <div>{c.payout_method || "—"}</div>
                       </>
                     ) : (
-                      <div>{floorCount(c)} on floor</div>
+                      <div>{floorCaption(c)}</div>
                     )}
                   </div>
                 </div>
@@ -817,7 +909,7 @@ export default function Consignors() {
                             {fmtMoney(c.total_owed)}
                           </div>
                           <div className="text-[10px] text-neutral-500 mt-0.5">
-                            {floorCount(c)} on floor
+                            {floorCaption(c)}
                           </div>
                         </>
                       ) : (
@@ -879,14 +971,8 @@ export default function Consignors() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums">
-                      {floorCount(c)}
-                      {(c.expired_items || 0) > 0 ? (
-                        <span className="text-amber-800">
-                          {" "}
-                          · {c.expired_items} exp
-                        </span>
-                      ) : null}
+                    <td className="px-3 py-3 text-right tabular-nums text-neutral-600">
+                      {floorCaption(c)}
                     </td>
                     {showFinance ? (
                       <td

@@ -50,7 +50,17 @@ async def current_consignor_split_pct(db) -> float:
 
 
 def resolve_consignor_split_pct(item: dict | None = None, consignor: dict | None = None) -> float:
-    """Prefer item stamp, then consignor stamp, else legacy 50%."""
+    """Prefer item stamp, then consignor stamp, else legacy 50%.
+
+    House / boutique-owned stock always pays out 0% to a consignor.
+    """
+    try:
+        from house_stock import is_house_item
+
+        if is_house_item(item, consignor):
+            return 0.0
+    except Exception:
+        pass
     for source in (item, consignor):
         if source and source.get("consignor_split_pct") is not None:
             try:

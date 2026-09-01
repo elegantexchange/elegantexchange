@@ -315,7 +315,7 @@ export default function Payouts() {
       {filtered.length === 0 && (
         <div className={`${panel} py-12 text-center text-sm text-neutral-400 font-light`}>
           {queue.length === 0
-            ? "Nothing to pay out — all settled."
+            ? "No balances yet. Owed comes from recorded sales and imported balances (Sold items or a balance_owed column on consignors)."
             : "No payouts match this search."}
         </div>
       )}

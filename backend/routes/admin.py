@@ -9,6 +9,12 @@ from pydantic import BaseModel, Field
 
 from auth import require_roles
 from categorize import capitalize_description, infer_category
+from sale_ops import (
+    backfill_sold_without_sales,
+    backfill_expired_floor_sales,
+    scrub_donated_returned_pendings,
+)
+from house_stock import ensure_house_consignor, mark_legacy_unassigned_as_house
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -30,7 +36,10 @@ _DROP_INVENTORY_FLAGS = {
     "missing_rack",
     "restored_after_seed_cleanup",
 }
-_TEST_NAME_RE = re.compile(r"^\s*(tai(\s+faustin)?)\s*$", re.I)
+_TEST_NAME_RE = re.compile(
+    r"^\s*(tai(\s+faustin)?|auto\s+id\s+skip\s+test(\s+\d+)?)\s*$",
+    re.I,
+)
 
 
 @router.post("/reset-boutique-data")
@@ -49,7 +58,7 @@ async def boutique_hygiene(request: Request, _u: dict = Depends(require_roles("a
     """Clean test accounts, stale import flags, capitalize descriptions, smart-categorize."""
     db = request.app.state.db
 
-    # --- remove test consignors (Tai / Tai Faustin) and related rows ---
+    # --- remove test consignors (Tai / Auto ID Skip Test*) and related rows ---
     test_ids: list[str] = []
     async for c in db.consignors.find({}, {"_id": 0, "consignor_id": 1, "full_name": 1}):
         if _TEST_NAME_RE.match(c.get("full_name") or ""):
@@ -124,6 +133,12 @@ async def boutique_hygiene(request: Request, _u: dict = Depends(require_roles("a
             await db.inventory.update_one({"_id": item["_id"]}, {"$set": patch})
             inv_updated += 1
 
+    sold_sales_backfill = await backfill_sold_without_sales(db)
+    house = await mark_legacy_unassigned_as_house(db)
+    await ensure_house_consignor(db)
+    scrubbed = await scrub_donated_returned_pendings(db)
+    expired_sales_backfill = await backfill_expired_floor_sales(db)
+
     return {
         "ok": True,
         "removed_test": removed,
@@ -131,6 +146,10 @@ async def boutique_hygiene(request: Request, _u: dict = Depends(require_roles("a
         "inventory_updated": inv_updated,
         "descriptions_capitalized": capitalized,
         "categorized": categorized,
+        "sold_sales_backfill": sold_sales_backfill,
+        "house_stock": house,
+        "scrubbed_donated_returned": scrubbed,
+        "expired_sales_backfill": expired_sales_backfill,
     }
 
 

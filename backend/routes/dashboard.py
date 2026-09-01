@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from auth import get_current_user
+from sale_ops import backfill_expired_floor_sales, scrub_donated_returned_pendings
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -17,6 +18,19 @@ async def dashboard(
     db = request.app.state.db
     today = date.today()
 
+    # Keep expired floor → pending consignor cuts in sync (idempotent)
+    from house_stock import (
+        ensure_house_consignor,
+        is_house_consignor,
+        is_house_consignor_id,
+        mark_legacy_unassigned_as_house,
+    )
+
+    await mark_legacy_unassigned_as_house(db)
+    await ensure_house_consignor(db)
+    await scrub_donated_returned_pendings(db)
+    await backfill_expired_floor_sales(db)
+
     # Sales today
     today_sales_cursor = db.sales.find({"sale_date": today.isoformat()}, {"_id": 0})
     sales_today_total = 0.0
@@ -26,19 +40,27 @@ async def dashboard(
     # Active items
     active_items = await db.inventory.count_documents({"status": "Active"})
 
-    # Payouts owed
+    # Payouts owed (exclude house / boutique-owned)
     pending = await db.sales.find(
-        {"payout_status": "Pending"}, {"_id": 0, "consignor_cut": 1}
+        {"payout_status": "Pending"},
+        {"_id": 0, "consignor_cut": 1, "consignor_id": 1},
     ).to_list(50000)
-    payouts_owed = round(sum(p["consignor_cut"] for p in pending), 2)
+    payouts_owed = round(
+        sum(
+            float(p["consignor_cut"])
+            for p in pending
+            if float(p.get("consignor_cut") or 0) > 0
+            and not is_house_consignor_id(p.get("consignor_id"))
+        ),
+        2,
+    )
 
     # Total consignors
     total_consignors = await db.consignors.count_documents({})
 
-    # Unpaid balances whose oldest pending sale is 14+ days old
-    cutoff = (today - timedelta(days=14)).isoformat()
-    stale_pipeline = [
-        {"$match": {"payout_status": "Pending", "sale_date": {"$lte": cutoff}}},
+    # Unsettled balances (pending consignor cuts) — Home Needs attention + Payouts owed
+    pending_pipeline = [
+        {"$match": {"payout_status": "Pending"}},
         {
             "$group": {
                 "_id": "$consignor_id",
@@ -47,12 +69,17 @@ async def dashboard(
                 "items": {"$sum": 1},
             }
         },
-        {"$sort": {"oldest": 1, "balance": -1}},
+        {"$sort": {"balance": -1, "oldest": 1}},
     ]
-    stale_balances = []
-    async for r in db.sales.aggregate(stale_pipeline):
-        c = await db.consignors.find_one({"consignor_id": r["_id"]}, {"_id": 0})
-        if not c:
+    pending_balances = []
+    async for r in db.sales.aggregate(pending_pipeline):
+        cid = r.get("_id")
+        if not cid or is_house_consignor_id(cid):
+            continue
+        if float(r.get("balance") or 0) <= 0:
+            continue
+        c = await db.consignors.find_one({"consignor_id": cid}, {"_id": 0})
+        if not c or is_house_consignor(c):
             continue
         oldest = r.get("oldest")
         days_pending = None
@@ -61,9 +88,9 @@ async def dashboard(
                 days_pending = (today - date.fromisoformat(str(oldest)[:10])).days
             except Exception:
                 days_pending = None
-        stale_balances.append(
+        pending_balances.append(
             {
-                "consignor_id": r["_id"],
+                "consignor_id": cid,
                 "full_name": c["full_name"],
                 "balance": round(r["balance"], 2),
                 "oldest": oldest,
@@ -71,6 +98,8 @@ async def dashboard(
                 "items": int(r.get("items") or 0),
             }
         )
+    # Back-compat alias used by older clients
+    stale_balances = [b for b in pending_balances if (b.get("days_pending") or 0) >= 14]
 
     # Raise inventory alert caps; UI scrolls instead of truncating to 5
     expiring_soon = []
@@ -80,14 +109,18 @@ async def dashboard(
         {"status": "Active", "period_end": {"$lte": seven_days, "$gte": today.isoformat()}},
         {"_id": 0},
     ).sort("period_end", 1).limit(100):
+        from house_stock import house_display_name
+
         c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
-        item["consignor_name"] = c["full_name"] if c else ""
+        item["consignor_name"] = house_display_name(item, c, fallback="")
         expiring_soon.append(item)
     async for item in db.inventory.find(
         {"status": "Expired"}, {"_id": 0}
     ).sort("period_end", 1).limit(100):
+        from house_stock import house_display_name
+
         c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
-        item["consignor_name"] = c["full_name"] if c else ""
+        item["consignor_name"] = house_display_name(item, c, fallback="")
         expired.append(item)
 
     # Sales trend
@@ -128,10 +161,14 @@ async def dashboard(
                 ),
             }
         )
-    async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
+    # Cap new-consignor noise after bulk import (same preview budget as Needs attention)
+    intake_n = 0
+    async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(40):
         ts = c.get("created_at", "")
         if not ts or ts[:10] < week_start:
             continue
+        if intake_n >= 5:
+            break
         activity.append(
             {
                 "type": "intake",
@@ -140,6 +177,7 @@ async def dashboard(
                 "sub": c["full_name"],
             }
         )
+        intake_n += 1
     async for p in db.payouts.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
         ts = p.get("created_at", "")
         paid = p.get("date_paid") or ""
@@ -165,6 +203,7 @@ async def dashboard(
         "alerts": {
             "expiring_soon": expiring_soon,
             "expired": expired,
+            "pending_balances": pending_balances,
             "stale_balances": stale_balances,
         },
         "trend": {

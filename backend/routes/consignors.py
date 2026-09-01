@@ -16,6 +16,8 @@ from models import (
 )
 from auth import get_current_user, normalize_role, require_roles
 from id_gen import next_consignor_id
+from sale_ops import upsert_opening_balance
+from csv_import_utils import parse_money
 
 router = APIRouter(prefix="/api/consignors", tags=["consignors"])
 
@@ -95,16 +97,29 @@ _HEADER_ALIASES = {
         "extra_notes",
         "extra_note",
     },
+    "balance_owed": {
+        "balance_owed",
+        "amount_owed",
+        "owed",
+        "total_owed",
+        "opening_balance",
+        "balance",
+        "payout_owed",
+    },
 }
 _TEMPLATE_CSV = (
-    "id,name,email,phone_number,expired_items,date_of_drop_off,extra_notes\n"
-    "2001,Jane Doe,jane@example.com,508-555-0100,donate,2026-03-15,Venmo @jane-doe\n"
-    "2002,,,,pick-up,,\n"
-    "2003,Sam Lee,,,1/4,,needs contact info\n"
+    "id,name,email,phone_number,expired_items,date_of_drop_off,extra_notes,balance_owed\n"
+    "2001,Jane Doe,jane@example.com,508-555-0100,donate,2026-03-15,Venmo @jane-doe,125.00\n"
+    "2002,,,,pick-up,,,\n"
+    "2003,Sam Lee,,,1/4,,needs contact info,\n"
 )
 
 
 async def _balance_for(db, consignor_id: str) -> float:
+    from house_stock import is_house_consignor_id
+
+    if is_house_consignor_id(consignor_id):
+        return 0.0
     cursor = db.sales.find(
         {"consignor_id": consignor_id, "payout_status": "Pending"},
         {"_id": 0, "consignor_cut": 1},
@@ -139,14 +154,21 @@ async def _active_count(db, consignor_id: str) -> int:
 
 
 async def _balances_map(db) -> dict[str, float]:
+    from house_stock import is_house_consignor_id
+
     pipeline = [
         {"$match": {"payout_status": "Pending"}},
         {"$group": {"_id": "$consignor_id", "balance": {"$sum": "$consignor_cut"}}},
     ]
     out: dict[str, float] = {}
     async for row in db.sales.aggregate(pipeline):
-        if row.get("_id"):
-            out[row["_id"]] = round(float(row.get("balance") or 0), 2)
+        cid = row.get("_id")
+        if not cid or is_house_consignor_id(cid):
+            continue
+        cut = round(float(row.get("balance") or 0), 2)
+        if cut <= 0:
+            continue
+        out[cid] = cut
     return out
 
 
@@ -170,16 +192,38 @@ async def _expired_counts_map(db) -> dict[str, int]:
     return out
 
 
-def _apply_expired_review(c: dict, expired_n: int) -> None:
-    """Expired floor items → needs review + payout due."""
+async def _live_counts_map(db) -> dict[str, int]:
+    """Active (not yet expired) items still on the floor per consignor."""
+    pipeline = [
+        {"$match": {"status": "Active"}},
+        {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
+    ]
+    out: dict[str, int] = {}
+    async for row in db.inventory.aggregate(pipeline):
+        if row.get("_id"):
+            out[row["_id"]] = int(row.get("n") or 0)
+    return out
+
+
+def _apply_derived_review(c: dict, expired_n: int, live_n: int | None = None) -> None:
+    """Derive review flags, live floor count, and payout-due from current state."""
     c["expired_items"] = int(expired_n or 0)
-    flags = list(c.get("import_flags") or [])
-    if c["expired_items"] > 0 and "expired_items" not in flags:
+    if live_n is None:
+        floor_n = int(c.get("floor_items") or c.get("active_items") or 0)
+        live_n = max(0, floor_n - c["expired_items"])
+    c["live_items"] = int(live_n or 0)
+
+    flags = [f for f in (c.get("import_flags") or []) if f not in ("expired_items", "missing_contact")]
+    if c["expired_items"] > 0:
         flags.append("expired_items")
+    email = (c.get("email") or "").strip()
+    phone = (c.get("phone") or "").strip()
+    if not email and not phone:
+        flags.append("missing_contact")
     c["import_flags"] = flags
-    c["needs_review"] = bool(c.get("needs_review")) or bool(flags)
+    c["needs_review"] = bool(flags)
     owed = float(c.get("total_owed") or 0)
-    c["payout_due"] = owed > 0 or c["expired_items"] > 0
+    c["payout_due"] = owed > 0
 
 
 def _norm_header(raw: str) -> str:
@@ -322,9 +366,22 @@ async def list_consignors(request: Request, _u: dict = Depends(get_current_user)
     retail = normalize_role(_u.get("role")) == "retail"
     await _refresh_expired(db)
     expired_map = await _expired_counts_map(db)
+    live_map = await _live_counts_map(db)
     floor_map = await _floor_counts_map(db)
     balance_map = await _balances_map(db)
     consignors = await db.consignors.find({}, {"_id": 0}).to_list(5000)
+    from house_stock import is_house_consignor
+
+    consignors = [
+        c
+        for c in consignors
+        if not is_house_consignor(c)
+        and not re.match(
+            r"^\s*auto\s+id\s+skip\s+test(\s+\d+)?\s*$",
+            c.get("full_name") or "",
+            re.I,
+        )
+    ]
     for c in consignors:
         cid = c["consignor_id"]
         floor_n = int(floor_map.get(cid, 0))
@@ -335,9 +392,12 @@ async def list_consignors(request: Request, _u: dict = Depends(get_current_user)
         c.setdefault("needs_review", bool(c.get("import_flags")))
         c.setdefault("expiry_action", "")
         c.setdefault("date_of_drop_off", "")
-        _apply_expired_review(c, expired_map.get(cid, 0))
+        _apply_derived_review(
+            c, expired_map.get(cid, 0), live_map.get(cid, 0)
+        )
         if retail:
             _redact_consignor_for_retail(c)
+        c["is_house"] = False
     consignors.sort(
         key=lambda c: (
             ((c.get("full_name") or "").strip().split() or [""])[0].lower(),
@@ -435,6 +495,15 @@ async def import_consignors(
         drop_raw = _cell(row, mapping, "date_of_drop_off")
         notes = _cell(row, mapping, "notes")
         address = _cell(row, mapping, "address")
+        balance_raw = _cell(row, mapping, "balance_owed")
+        balance_amt, balance_ok = parse_money(balance_raw)
+        if balance_raw and not balance_ok:
+            errors.append(
+                ConsignorImportRowIssue(
+                    row=i, reason=f"invalid balance_owed '{balance_raw}'"
+                )
+            )
+            continue
 
         if not cid and len(full_name) < 2:
             errors.append(
@@ -467,21 +536,37 @@ async def import_consignors(
                 continue
 
         if cid and cid in id_index:
+            matched_id = id_index[cid]
+            if balance_amt and balance_amt > 0:
+                await upsert_opening_balance(
+                    db,
+                    consignor_id=matched_id,
+                    amount=balance_amt,
+                    notes="Imported opening balance",
+                )
             skipped_rows.append(
                 ConsignorImportRowIssue(
                     row=i,
                     reason="duplicate id",
-                    matched_id=id_index[cid],
+                    matched_id=matched_id,
                 )
             )
             continue
 
         if email and email in email_index:
+            matched_id = email_index[email]
+            if balance_amt and balance_amt > 0:
+                await upsert_opening_balance(
+                    db,
+                    consignor_id=matched_id,
+                    amount=balance_amt,
+                    notes="Imported opening balance",
+                )
             skipped_rows.append(
                 ConsignorImportRowIssue(
                     row=i,
                     reason="duplicate email",
-                    matched_id=email_index[email],
+                    matched_id=matched_id,
                 )
             )
             continue
@@ -490,11 +575,19 @@ async def import_consignors(
         np_key = (display_name.strip().lower(), _norm_phone(phone))
         # Only dedupe name+phone when a real name was provided
         if len(full_name) >= 2 and np_key[1] and np_key in name_phone_index:
+            matched_id = name_phone_index[np_key]
+            if balance_amt and balance_amt > 0:
+                await upsert_opening_balance(
+                    db,
+                    consignor_id=matched_id,
+                    amount=balance_amt,
+                    notes="Imported opening balance",
+                )
             skipped_rows.append(
                 ConsignorImportRowIssue(
                     row=i,
                     reason="duplicate name + phone",
-                    matched_id=name_phone_index[np_key],
+                    matched_id=matched_id,
                 )
             )
             continue
@@ -535,6 +628,13 @@ async def import_consignors(
             email_index[email] = new_id
         if len(full_name) >= 2 and np_key[1]:
             name_phone_index[np_key] = new_id
+        if balance_amt and balance_amt > 0:
+            await upsert_opening_balance(
+                db,
+                consignor_id=new_id,
+                amount=balance_amt,
+                notes="Imported opening balance",
+            )
         if flags:
             flagged_rows.append(
                 ConsignorImportFlagged(
@@ -572,7 +672,10 @@ async def get_consignor(
     expired_n = await db.inventory.count_documents(
         {"consignor_id": consignor_id, "status": "Expired"}
     )
-    _apply_expired_review(c, expired_n)
+    live_n = await db.inventory.count_documents(
+        {"consignor_id": consignor_id, "status": "Active"}
+    )
+    _apply_derived_review(c, expired_n, live_n)
     c["items"] = await db.inventory.find(
         {"consignor_id": consignor_id}, {"_id": 0}
     ).sort("date_in", -1).to_list(2000)
@@ -598,8 +701,28 @@ async def update_consignor(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         return {"ok": True}
+
+    existing = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    merged = {**existing, **updates}
+    flags = list(merged.get("import_flags") or [])
+    # Keep non-contact flags; re-derive missing_contact from merged phone/email
+    flags = [f for f in flags if f != "missing_contact"]
+    email = (merged.get("email") or "").strip()
+    phone = (merged.get("phone") or "").strip()
+    if not email and not phone:
+        flags.append("missing_contact")
     if "import_flags" in updates:
-        updates["needs_review"] = bool(updates["import_flags"])
+        # Caller supplied flags — still enforce contact rule
+        supplied = [f for f in (updates["import_flags"] or []) if f != "missing_contact"]
+        if not email and not phone:
+            supplied.append("missing_contact")
+        flags = supplied
+    updates["import_flags"] = flags
+    updates["needs_review"] = bool(flags)
+
     await db.consignors.update_one({"consignor_id": consignor_id}, {"$set": updates})
     return {"ok": True}
 

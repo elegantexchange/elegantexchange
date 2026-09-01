@@ -196,22 +196,8 @@ export function ShopPanel() {
       <div>
         <h3 className="ee-section-header text-base mb-3">Square POS</h3>
         <p className="text-sm text-neutral-500 font-light mb-4">
-          Connect once, then use <span className="text-neutral-700">Charge with Square</span> on
-          Sales from the Square Stand iPad. That opens Square Point of Sale with the piece ID in
-          the payment note so consignors stay attributed. In the{" "}
-          <a
-            href="https://developer.squareup.com/apps"
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2 hover:text-[var(--ee-magenta)]"
-          >
-            Square Developer Console
-          </a>
-          , enable the Point of Sale API and set the iOS/Android callback URL to{" "}
-          <code className="text-xs break-all">
-            {square?.pos_callback_url || `${window.location.origin}/sales`}
-          </code>
-          .
+          Connect your Square account here. Then charge from Sales on the floor iPad — payments
+          stay tied to each piece and consignor.
         </p>
         {!square?.configured ? (
           <p className="text-sm text-amber-800/80">

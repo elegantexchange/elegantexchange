@@ -63,12 +63,15 @@ export default function IntakeDialog({ open, onClose, onDone, presetConsignorId,
 }
 
 function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
-  const [step, setStep] = useState(0);
+  const houseOnly = presetMode === "house";
+  const [step, setStep] = useState(houseOnly ? 1 : 0);
   const [busy, setBusy] = useState(false);
   const [consignors, setConsignors] = useState([]);
   const [consignorSplitPct, setConsignorSplitPct] = useState(50);
-  const [mode, setMode] = useState(presetMode || "existing"); // existing | new
-  const [consignorId, setConsignorId] = useState(presetConsignorId || "");
+  const [mode, setMode] = useState(presetMode || "existing"); // existing | new | house
+  const [consignorId, setConsignorId] = useState(
+    houseOnly ? "HOUSE" : presetConsignorId || ""
+  );
   const [newConsignor, setNewConsignor] = useState({
     full_name: "",
     phone: "",
@@ -102,24 +105,45 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
   const selectedConsignor = useMemo(() => {
     if (mode === "existing")
       return consignors.find((c) => c.consignor_id === consignorId);
+    if (mode === "house")
+      return (
+        consignors.find((c) => c.is_house || c.consignor_id === "HOUSE") || {
+          consignor_id: "HOUSE",
+          full_name: "In House",
+          is_house: true,
+        }
+      );
     return null;
   }, [mode, consignors, consignorId]);
 
   const consignorDisplayName =
-    mode === "existing" ? selectedConsignor?.full_name : newConsignor.full_name;
+    mode === "existing"
+      ? selectedConsignor?.full_name
+      : mode === "house"
+        ? "In House"
+        : newConsignor.full_name;
   const consignorDisplayId =
-    mode === "existing" ? selectedConsignor?.consignor_id : "(new)";
+    mode === "existing"
+      ? selectedConsignor?.consignor_id
+      : mode === "house"
+        ? "HOUSE"
+        : "(new)";
 
   // Validation
   const canLeaveStep0 =
-    mode === "existing"
-      ? !!consignorId
-      : newConsignor.full_name.trim().length > 1;
+    mode === "house"
+      ? true
+      : mode === "existing"
+        ? !!consignorId
+        : newConsignor.full_name.trim().length > 1;
   const validItems = items.filter(
     (i) => i.description.trim() && Number(i.asking_price) > 0
   );
   const canLeaveStep1 = validItems.length > 0;
-  const canSubmit = !sigEmpty && (signedName.trim().length > 1 || consignorDisplayName);
+  const canSubmit =
+    mode === "house"
+      ? true
+      : !sigEmpty && (signedName.trim().length > 1 || consignorDisplayName);
 
   const setItem = (idx, patch) => {
     const next = items.slice();
@@ -132,10 +156,47 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
       return toast.error("Choose or create a consignor first");
     if (step === 1 && !canLeaveStep1)
       return toast.error("Add at least one item with description and price");
+    if (step === 1 && mode === "house") return submitHouse();
     if (step === 2) return submit();
     setStep(step + 1);
   };
-  const back = () => setStep(Math.max(0, step - 1));
+  const back = () => {
+    if (houseOnly && step === 1) {
+      onClose();
+      return;
+    }
+    setStep(Math.max(0, step - 1));
+  };
+
+  const visibleSteps =
+    mode === "house"
+      ? [{ key: "items", label: "House items" }]
+      : STEPS;
+  const visibleStepIndex = mode === "house" ? 0 : step;
+
+  const submitHouse = async () => {
+    setBusy(true);
+    try {
+      const { data: batch } = await api.post("/inventory/batch", {
+        consignor_id: "HOUSE",
+        items: validItems.map((i) => ({
+          ...i,
+          asking_price: Number(i.asking_price),
+        })),
+      });
+      toast.success(
+        `${batch.items.length} house item${batch.items.length === 1 ? "" : "s"} added`
+      );
+      const ids = batch.items.map((i) => i.item_id).join(",");
+      window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
+      onDone?.();
+      onClose();
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (sigRef.current?.isEmpty()) return toast.error("Please sign the agreement");
@@ -184,44 +245,52 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
     <>
       <div className="shrink-0 px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
         <h2 className="ee-section-header text-lg sm:text-xl pr-6 font-semibold tracking-tight">
-          New Drop-Off
+          {mode === "house" ? "House items" : "New Drop-Off"}
         </h2>
+        {mode === "house" ? (
+          <p className="mt-1 text-[13px] text-neutral-500 font-light">
+            Tagged as In House · no agreement · 100% store
+          </p>
+        ) : null}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-5 sm:px-5 sm:pb-6">
-        {/* Stepper */}
-        <ol className="flex items-center gap-1 sm:gap-2 text-[10px] uppercase tracking-[0.14em] font-semibold border-b border-[var(--ee-border)] pb-3 mb-5 sm:mb-6 overflow-x-auto">
-          {STEPS.map((s, i) => (
-            <li
-              key={s.key}
-              className={`flex items-center gap-2 whitespace-nowrap ${
-                i === step
-                  ? "text-[var(--ee-magenta)]"
-                  : i < step
-                  ? "text-neutral-700"
-                  : "text-neutral-400"
-              }`}
-            >
-              <span
-                className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] ${
-                  i === step
-                    ? "bg-[var(--ee-magenta)] text-white"
-                    : i < step
-                    ? "bg-neutral-700 text-white"
-                    : "bg-neutral-200 text-neutral-500"
+        {mode !== "house" ? (
+          <ol className="flex items-center gap-1 sm:gap-2 text-[10px] uppercase tracking-[0.14em] font-semibold border-b border-[var(--ee-border)] pb-3 mb-5 sm:mb-6 overflow-x-auto">
+            {visibleSteps.map((s, i) => (
+              <li
+                key={s.key}
+                className={`flex items-center gap-2 whitespace-nowrap ${
+                  i === visibleStepIndex
+                    ? "text-[var(--ee-magenta)]"
+                    : i < visibleStepIndex
+                    ? "text-neutral-700"
+                    : "text-neutral-400"
                 }`}
               >
-                {i + 1}
-              </span>
-              <span className="hidden sm:inline">{s.label}</span>
-              {i < STEPS.length - 1 && (
-                <ChevronRight size={12} className="text-neutral-300" />
-              )}
-            </li>
-          ))}
-        </ol>
+                <span
+                  className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] ${
+                    i === visibleStepIndex
+                      ? "bg-[var(--ee-magenta)] text-white"
+                      : i < visibleStepIndex
+                      ? "bg-neutral-700 text-white"
+                      : "bg-neutral-200 text-neutral-500"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span className="hidden sm:inline">{s.label}</span>
+                {i < visibleSteps.length - 1 && (
+                  <ChevronRight size={12} className="text-neutral-300" />
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="border-b border-[var(--ee-border)] pb-3 mb-5 sm:mb-6" />
+        )}
 
-        {step === 0 && (
+        {step === 0 && mode !== "house" && (
           <StepConsignor
             mode={mode}
             setMode={setMode}
@@ -274,7 +343,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
             toast.success("Scanned item added — review before continuing");
           }}
         />
-        {step === 2 && (
+        {step === 2 && mode !== "house" && (
           <StepAgreement
             consignorName={consignorDisplayName || newConsignor.full_name}
             consignorId={consignorDisplayId}
@@ -292,12 +361,12 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
       <div className="shrink-0 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 sm:px-5 sm:py-4 border-t border-[var(--ee-border)]">
         <Button
           variant="outline"
-          onClick={step === 0 ? onClose : back}
+          onClick={step === 0 || (houseOnly && step === 1) ? onClose : back}
           className="ee-btn-label w-full sm:w-auto"
           data-testid="intake-back"
         >
           <ChevronLeft size={14} className="mr-1" />
-          {step === 0 ? "Cancel" : "Back"}
+          {step === 0 || (houseOnly && step === 1) ? "Cancel" : "Back"}
         </Button>
         <Button
           data-testid="intake-next"
@@ -305,7 +374,11 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           disabled={busy || (step === 2 && !canSubmit)}
           className="ee-btn-label w-full sm:w-auto bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
         >
-          {step === 2 ? (
+          {step === 1 && mode === "house" ? (
+            <>
+              <Printer size={14} className="mr-1" /> Save house items
+            </>
+          ) : step === 2 ? (
             <>
               <Printer size={14} className="mr-1" /> Sign & Save
             </>
@@ -331,11 +404,12 @@ function StepConsignor({
 }) {
   return (
     <div className="space-y-3 sm:space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button
+          type="button"
           data-testid="intake-mode-existing"
           onClick={() => setMode("existing")}
-          className={`flex-1 min-w-0 text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "existing"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
@@ -345,9 +419,10 @@ function StepConsignor({
           <span className="hidden sm:inline">Existing Consignor</span>
         </button>
         <button
+          type="button"
           data-testid="intake-mode-new"
           onClick={() => setMode("new")}
-          className={`flex-1 min-w-0 text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "new"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
@@ -356,9 +431,31 @@ function StepConsignor({
           <span className="sm:hidden">New</span>
           <span className="hidden sm:inline">New Consignor</span>
         </button>
+        <button
+          type="button"
+          data-testid="intake-mode-house"
+          onClick={() => {
+            setMode("house");
+            setConsignorId("HOUSE");
+          }}
+          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+            mode === "house"
+              ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
+              : "border-[var(--ee-border)] text-neutral-600"
+          }`}
+        >
+          <span className="sm:hidden">House</span>
+          <span className="hidden sm:inline">In House</span>
+        </button>
       </div>
 
-      {mode === "existing" ? (
+      {mode === "house" ? (
+        <div className="rounded-[8px] border border-[var(--ee-sidebar-border)] bg-black/[0.02] px-3 py-3 text-sm text-neutral-600">
+          Owner-bought stock. Tagged as{" "}
+          <span className="font-semibold text-[var(--ee-ink)]">In House</span> —
+          100% store when sold, no consignor payout.
+        </div>
+      ) : mode === "existing" ? (
         <div>
           <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
             Consignor
