@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Flag, Printer, Search, SlidersHorizontal, Upload, X } from "lucide-react";
+import { Camera, Flag, Pencil, Printer, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -33,20 +33,23 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
-import { CATEGORIES } from "@/lib/brand";
+import { CATEGORIES, CONDITIONS } from "@/lib/brand";
 import { toast } from "sonner";
 import ItemScanDialog from "@/components/ItemScanDialog";
 import ItemMediaGallery from "@/components/ItemMediaGallery";
+import { useAuth } from "@/context/AuthContext";
+import { isManagerOrAdmin, roleOf } from "@/lib/auth";
+
+const ITEM_STATUSES = ["Active", "Sold", "Expired", "Donated", "Returned"];
 
 const STATUS_FILTERS = ["All", "Active", "Expiring Soon", "Expired", "Sold", "Donated", "Returned"];
 
 const FLAG_LABELS = {
   missing_description: "Missing description",
-  missing_rack: "Missing rack",
   missing_category: "Missing category",
   unknown_category: "Unknown category",
-  missing_price: "Missing price",
-  unparsed_price: "Unparsed price",
+  missing_price: "Missing listing price",
+  unparsed_price: "Unparsed listing price",
   missing_date_in: "No date in",
   unparsed_date_in: "Unparsed date in",
   consignor_created: "Consignor auto-created",
@@ -95,20 +98,70 @@ function flagLabel(flag) {
   return FLAG_LABELS[flag] || flag;
 }
 
-function toneFor(i, today, sevenAhead) {
-  const flags = i.import_flags || [];
-  if (i.needs_review || flags.length > 0) return TONES.review;
-  if (
-    i.status === "Expired" ||
-    (i.status === "Active" &&
-      i.period_end &&
-      i.period_end <= sevenAhead &&
-      i.period_end >= today)
-  ) {
-    return TONES.attention;
+/** Calendar-day delta from `today` (YYYY-MM-DD) to `iso` (YYYY-MM-DD). */
+function daysUntil(iso, today) {
+  if (!iso || !today) return null;
+  const end = new Date(`${iso.slice(0, 10)}T12:00:00`);
+  const start = new Date(`${today.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(end.getTime()) || Number.isNaN(start.getTime())) return null;
+  return Math.round((end - start) / 86400000);
+}
+
+/** Human-readable reasons an item needs attention (expiry / period). */
+function attentionReasons(i, today) {
+  const reasons = [];
+  if (i.status === "Expired") {
+    reasons.push(
+      i.period_end
+        ? `Consignment period ended on ${fmtDate(i.period_end)}. Renew, donate, or return this item.`
+        : "Consignment period has ended. Renew, donate, or return this item."
+    );
+    return reasons;
   }
-  if (i.status === "Active") return TONES.active;
-  return TONES.closed;
+  if (i.status === "Active" && i.period_end) {
+    const days = daysUntil(i.period_end, today);
+    if (days == null) return reasons;
+    if (days < 0) {
+      const ago = Math.abs(days);
+      reasons.push(
+        `Consignment period ended on ${fmtDate(i.period_end)} (${ago} day${ago === 1 ? "" : "s"} ago). Update status or renew.`
+      );
+    } else if (days === 0) {
+      reasons.push(
+        `Consignment period ends today (${fmtDate(i.period_end)}). Decide renew, donate, or return.`
+      );
+    } else if (days <= 7) {
+      reasons.push(
+        `Consignment period ends in ${days} day${days === 1 ? "" : "s"} (${fmtDate(i.period_end)}).`
+      );
+    }
+  }
+  return reasons;
+}
+
+function toneFor(i, today) {
+  const flags = i.import_flags || [];
+  if (i.needs_review || flags.length > 0) {
+    return {
+      ...TONES.review,
+      reasons: flags.length
+        ? flags.map(flagLabel)
+        : ["Marked for review — check missing or incomplete fields."],
+    };
+  }
+  const reasons = attentionReasons(i, today);
+  if (reasons.length) {
+    const past =
+      i.status === "Expired" ||
+      (i.period_end && daysUntil(i.period_end, today) < 0);
+    return {
+      ...TONES.attention,
+      label: past ? "Expired" : "Expiring soon",
+      reasons,
+    };
+  }
+  if (i.status === "Active") return { ...TONES.active, reasons: [] };
+  return { ...TONES.closed, reasons: [] };
 }
 
 function initials(desc) {
@@ -122,6 +175,10 @@ function initials(desc) {
 }
 
 export default function Inventory() {
+  const { user } = useAuth();
+  const canDelete = isManagerOrAdmin(user);
+  const canEditPrice = isManagerOrAdmin(user);
+  const retailView = roleOf(user) === "retail";
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -136,6 +193,10 @@ export default function Inventory() {
   const [scanSave, setScanSave] = useState(null);
   const [consignors, setConsignors] = useState([]);
   const [savingScan, setSavingScan] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const fileRef = useRef(null);
   const nav = useNavigate();
 
@@ -299,7 +360,7 @@ export default function Inventory() {
     }
   };
 
-  const focusedTone = focused ? toneFor(focused, today, sevenAhead) : null;
+  const focusedTone = focused ? toneFor(focused, today) : null;
 
   const saveMedia = async (itemId, nextMedia) => {
     setItems((prev) =>
@@ -316,6 +377,81 @@ export default function Inventory() {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
       load();
       throw e;
+    }
+  };
+
+  const openEdit = (item) => {
+    setEditDraft({
+      item_id: item.item_id,
+      description: item.description || "",
+      category: item.category || "Other",
+      size: item.size || "",
+      condition: item.condition || "Excellent",
+      asking_price: String(item.asking_price ?? ""),
+      rack: item.rack || "",
+      color: item.color || "",
+      text_id: item.text_id || "",
+      status: item.status || "Active",
+    });
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editDraft?.item_id) return;
+    if (!editDraft.description.trim()) return toast.error("Description is required");
+    const payload = {
+      description: editDraft.description.trim(),
+      category: editDraft.category,
+      size: editDraft.size.trim(),
+      condition: editDraft.condition,
+      rack: editDraft.rack.trim(),
+      color: editDraft.color.trim(),
+      text_id: editDraft.text_id.trim(),
+      status: editDraft.status,
+    };
+    if (canEditPrice) {
+      const price = Number(editDraft.asking_price);
+      if (Number.isNaN(price) || price < 0) {
+        return toast.error("Enter a valid listing price");
+      }
+      payload.asking_price = price;
+    }
+    setEditBusy(true);
+    try {
+      const { data } = await api.patch(`/inventory/${editDraft.item_id}`, payload);
+      setItems((prev) =>
+        prev.map((i) =>
+          i.item_id === editDraft.item_id ? { ...i, ...data } : i
+        )
+      );
+      toast.success("Item updated");
+      setEditOpen(false);
+      setEditDraft(null);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const deleteItem = async (item) => {
+    if (!canDelete || !item) return;
+    if (
+      !window.confirm(
+        `Delete ${item.item_id}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await api.delete(`/inventory/${item.item_id}`);
+      setItems((prev) => prev.filter((i) => i.item_id !== item.item_id));
+      toast.success("Item deleted");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -591,7 +727,7 @@ export default function Inventory() {
           >
             <ul className="divide-y divide-[var(--ee-sidebar-border)]">
               {filtered.map((i) => {
-                const tone = toneFor(i, today, sevenAhead);
+                const tone = toneFor(i, today);
                 const flags = i.import_flags || [];
                 const on = focusId === i.item_id;
                 return (
@@ -747,6 +883,33 @@ export default function Inventory() {
                 />
               </div>
 
+              {(focusedTone.reasons || []).length > 0 && (
+                <div
+                  data-testid="inventory-attention-reason"
+                  className="mt-5 rounded-[11px] border p-3"
+                  style={{
+                    borderColor: focusedTone.border,
+                    background: focusedTone.soft,
+                  }}
+                >
+                  <div
+                    className="text-[10px] tracking-[0.14em] uppercase font-semibold flex items-center gap-1"
+                    style={{ color: focusedTone.ink }}
+                  >
+                    <Flag size={11} />
+                    {focusedTone.label}
+                  </div>
+                  <ul
+                    className="mt-1.5 text-sm space-y-1"
+                    style={{ color: focusedTone.ink }}
+                  >
+                    {focusedTone.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                 {[
                   ["Status", <StatusPill key="s" status={focused.status} />],
@@ -754,7 +917,7 @@ export default function Inventory() {
                   ["Size", focused.size || "—"],
                   ["Date in", fmtDate(focused.date_in)],
                   ["Period end", fmtDate(focused.period_end)],
-                  ["Text ID", focused.text_id || "—"],
+                  ["ID", focused.text_id || "—"],
                   [
                     "Consignor",
                     <button
@@ -766,13 +929,13 @@ export default function Inventory() {
                       {focused.consignor_name} · {focused.consignor_id}
                     </button>,
                   ],
-                  [
+                  (focused.import_flags || []).length > 0 && [
                     "Flags",
-                    (focused.import_flags || []).length
-                      ? (focused.import_flags || []).map(flagLabel).join(", ")
-                      : "None",
+                    (focused.import_flags || []).map(flagLabel).join(", "),
                   ],
-                ].map(([label, value]) => (
+                ]
+                  .filter(Boolean)
+                  .map(([label, value]) => (
                   <div key={label} className="min-w-0">
                     <div className="text-[10px] tracking-[0.14em] uppercase text-neutral-500 font-semibold">
                       {label}
@@ -782,23 +945,19 @@ export default function Inventory() {
                 ))}
               </div>
 
-              {(focused.import_flags || []).length > 0 && (
-                <div className="mt-5 rounded-[11px] border border-amber-200 bg-amber-50 p-3">
-                  <div className="text-[10px] tracking-[0.14em] uppercase text-amber-800 font-semibold flex items-center gap-1">
-                    <Flag size={11} /> Needs review
-                  </div>
-                  <ul className="mt-1.5 text-sm text-amber-900 space-y-0.5">
-                    {focused.import_flags.map((f) => (
-                      <li key={f}>{flagLabel(f)}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
               <div className="mt-8 flex flex-wrap gap-2">
                 <Button
                   type="button"
+                  data-testid="inventory-edit-btn"
                   className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                  onClick={() => openEdit(focused)}
+                >
+                  <Pencil size={13} className="mr-1" /> Edit item
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
                   onClick={() => printTags([focused.item_id])}
                 >
                   <Printer size={13} className="mr-1" /> Print tag
@@ -819,6 +978,18 @@ export default function Inventory() {
                 >
                   View consignor
                 </Button>
+                {canDelete ? (
+                  <Button
+                    type="button"
+                    data-testid="inventory-delete-btn"
+                    variant="outline"
+                    disabled={deleteBusy}
+                    className="ee-btn-label rounded-[8px] border-red-200 text-red-700 hover:bg-red-50"
+                    onClick={() => deleteItem(focused)}
+                  >
+                    <Trash2 size={13} className="mr-1" /> Delete
+                  </Button>
+                ) : null}
               </div>
             </motion.div>
           ) : (
@@ -840,6 +1011,196 @@ export default function Inventory() {
           setScanSave({ ...draft });
         }}
       />
+
+      <Dialog
+        open={editOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setEditOpen(false);
+            setEditDraft(null);
+          }
+        }}
+      >
+        <DialogContent data-testid="inventory-edit-dialog" className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit item</DialogTitle>
+            <DialogDescription>
+              Update floor details for {editDraft?.item_id}.
+            </DialogDescription>
+          </DialogHeader>
+          {editDraft && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <Label className="text-[10px] tracking-[0.14em] uppercase">Description</Label>
+                <Input
+                  data-testid="inventory-edit-description"
+                  value={editDraft.description}
+                  onChange={(e) =>
+                    setEditDraft((d) => ({ ...d, description: e.target.value }))
+                  }
+                  className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Category</Label>
+                  <Select
+                    value={editDraft.category}
+                    onValueChange={(v) =>
+                      setEditDraft((d) => ({ ...d, category: v }))
+                    }
+                  >
+                    <SelectTrigger data-testid="inventory-edit-category" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Condition</Label>
+                  <Select
+                    value={editDraft.condition}
+                    onValueChange={(v) =>
+                      setEditDraft((d) => ({ ...d, condition: v }))
+                    }
+                  >
+                    <SelectTrigger data-testid="inventory-edit-condition" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONDITIONS.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Size</Label>
+                  <Input
+                    data-testid="inventory-edit-size"
+                    value={editDraft.size}
+                    onChange={(e) =>
+                      setEditDraft((d) => ({ ...d, size: e.target.value }))
+                    }
+                    className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">
+                    Listing price
+                  </Label>
+                  <Input
+                    data-testid="inventory-edit-price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editDraft.asking_price}
+                    disabled={!canEditPrice}
+                    onChange={(e) =>
+                      setEditDraft((d) => ({ ...d, asking_price: e.target.value }))
+                    }
+                    className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)] disabled:opacity-60"
+                  />
+                  {retailView ? (
+                    <p className="text-[11px] text-neutral-500 mt-1">
+                      Only managers can change listing price.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Rack</Label>
+                  <Input
+                    data-testid="inventory-edit-rack"
+                    value={editDraft.rack}
+                    onChange={(e) =>
+                      setEditDraft((d) => ({ ...d, rack: e.target.value }))
+                    }
+                    className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Color</Label>
+                  <Input
+                    data-testid="inventory-edit-color"
+                    value={editDraft.color}
+                    onChange={(e) =>
+                      setEditDraft((d) => ({ ...d, color: e.target.value }))
+                    }
+                    className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">ID</Label>
+                  <Input
+                    data-testid="inventory-edit-text-id"
+                    value={editDraft.text_id}
+                    onChange={(e) =>
+                      setEditDraft((d) => ({ ...d, text_id: e.target.value }))
+                    }
+                    className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Status</Label>
+                  <Select
+                    value={editDraft.status}
+                    onValueChange={(v) =>
+                      setEditDraft((d) => ({ ...d, status: v }))
+                    }
+                  >
+                    <SelectTrigger data-testid="inventory-edit-status" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ITEM_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="ee-btn-label"
+              onClick={() => {
+                setEditOpen(false);
+                setEditDraft(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              data-testid="inventory-edit-save"
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              disabled={editBusy}
+              onClick={saveEdit}
+            >
+              {editBusy ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!scanSave} onOpenChange={(o) => !o && setScanSave(null)}>
         <DialogContent data-testid="scan-save-dialog" className="max-w-md">

@@ -13,6 +13,8 @@ import StatusPill from "@/components/StatusPill";
 import IntakeDialog from "@/components/IntakeDialog";
 import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin, Download, Flag } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { isManagerOrAdmin, roleOf } from "@/lib/auth";
 
 const FLAG_LABELS = {
   missing_name: "Missing name",
@@ -24,6 +26,9 @@ const FLAG_LABELS = {
 export default function ConsignorDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { user } = useAuth();
+  const retailView = roleOf(user) === "retail";
+  const showFinance = isManagerOrAdmin(user);
   const [data, setData] = useState(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
 
@@ -84,18 +89,22 @@ export default function ConsignorDetail() {
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-y-2 text-sm border-t border-[var(--ee-border)] pt-4">
-            <div>
-              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
-                Payout Method
-              </div>
-              <div>{data.payout_method}</div>
-            </div>
-            <div>
-              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
-                Payout Details
-              </div>
-              <div>{data.payout_details || "—"}</div>
-            </div>
+            {showFinance ? (
+              <>
+                <div>
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                    Payout Method
+                  </div>
+                  <div>{data.payout_method}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
+                    Payout Details
+                  </div>
+                  <div>{data.payout_details || "—"}</div>
+                </div>
+              </>
+            ) : null}
             <div>
               <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
                 Expired items
@@ -140,15 +149,31 @@ export default function ConsignorDetail() {
           )}
         </section>
         <section className="bg-white border border-[var(--ee-magenta)] rounded-md p-5" style={{ borderWidth: 1.5 }}>
-          <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold">
-            Balance Owed
-          </div>
-          <div data-testid="consignor-balance" className="text-4xl font-bold text-[var(--ee-magenta)] mt-1">
-            {fmtMoney(data.total_owed)}
-          </div>
-          <div className="text-xs text-neutral-500 font-light mt-1">
-            {data.active_items} active item{data.active_items === 1 ? "" : "s"} on the floor
-          </div>
+          {showFinance ? (
+            <>
+              <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold">
+                Balance Owed
+              </div>
+              <div data-testid="consignor-balance" className="text-4xl font-bold text-[var(--ee-magenta)] mt-1">
+                {fmtMoney(data.total_owed)}
+              </div>
+              <div className="text-xs text-neutral-500 font-light mt-1">
+                {data.active_items} active item{data.active_items === 1 ? "" : "s"} on the floor
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold">
+                On the floor
+              </div>
+              <div data-testid="consignor-active-items" className="text-4xl font-bold text-[var(--ee-magenta)] mt-1">
+                {data.active_items}
+              </div>
+              <div className="text-xs text-neutral-500 font-light mt-1">
+                active item{data.active_items === 1 ? "" : "s"}
+              </div>
+            </>
+          )}
         </section>
       </div>
 
@@ -156,7 +181,7 @@ export default function ConsignorDetail() {
         <TabsList className="bg-transparent border-b border-[var(--ee-border)] rounded-none w-full justify-start p-0 h-auto">
           {[
             ["items", "Items"],
-            ["earnings", "Earnings"],
+            ["earnings", retailView ? "Sales" : "Earnings"],
             ["documents", "Documents"],
           ].map(([k, label]) => (
             <TabsTrigger
@@ -174,7 +199,7 @@ export default function ConsignorDetail() {
             <table className="w-full text-sm">
               <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
                 <tr>
-                  {["Ref", "Description", "Category", "Price", "Date In", "Period End", "Status"].map((h) => (
+                  {["Ref", "Description", "Category", "Listing price", "Date In", "Period End", "Status"].map((h) => (
                     <th key={h} className="ee-table-header text-left px-4 py-3">{h}</th>
                   ))}
                 </tr>
@@ -203,7 +228,10 @@ export default function ConsignorDetail() {
             <table className="w-full text-sm">
               <thead className="bg-neutral-50 border-b border-[var(--ee-border)]">
                 <tr>
-                  {["Date", "Item", "Sale Price", "Consignor Cut", "Status", "Payout Date"].map((h) => (
+                  {(retailView
+                    ? ["Date", "Item", "Sale Price"]
+                    : ["Date", "Item", "Sale Price", "Consignor Cut", "Status", "Payout Date"]
+                  ).map((h) => (
                     <th key={h} className="ee-table-header text-left px-4 py-3">{h}</th>
                   ))}
                 </tr>
@@ -214,24 +242,28 @@ export default function ConsignorDetail() {
                     <td className="px-4 py-3">{fmtDate(s.sale_date)}</td>
                     <td className="px-4 py-3 font-semibold">{s.item_id}</td>
                     <td className="px-4 py-3">{fmtMoney(s.sale_price)}</td>
-                    <td className="px-4 py-3 text-[var(--ee-magenta)] font-semibold">
-                      {fmtMoney(s.consignor_cut)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-semibold uppercase tracking-[0.12em] px-2 py-0.5 rounded ${s.payout_status === "Paid" ? "ee-status-sold" : "ee-status-donated"}`}>
-                        {s.payout_status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-600">{fmtDate(s.payout_date)}</td>
+                    {!retailView ? (
+                      <>
+                        <td className="px-4 py-3 text-[var(--ee-magenta)] font-semibold">
+                          {fmtMoney(s.consignor_cut)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-[10px] font-semibold uppercase tracking-[0.12em] px-2 py-0.5 rounded ${s.payout_status === "Paid" ? "ee-status-sold" : "ee-status-donated"}`}>
+                            {s.payout_status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-neutral-600">{fmtDate(s.payout_date)}</td>
+                      </>
+                    ) : null}
                   </tr>
                 ))}
                 {data.sales.length === 0 && (
-                  <tr><td colSpan={6} className="text-center text-sm text-neutral-400 py-8 font-light">No sales yet.</td></tr>
+                  <tr><td colSpan={retailView ? 3 : 6} className="text-center text-sm text-neutral-400 py-8 font-light">No sales yet.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {data.payouts.length > 0 && (
+          {showFinance && data.payouts.length > 0 && (
             <div className="mt-6">
               <h3 className="ee-section-header text-sm mb-2">Payout History</h3>
               <div className="bg-white border border-[var(--ee-border)] rounded-md overflow-hidden">

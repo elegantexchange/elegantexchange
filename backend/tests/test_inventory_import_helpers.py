@@ -80,7 +80,7 @@ def test_category_condition_and_flags():
         consignor_created=True,
     )
     assert "missing_description" in flags
-    assert "missing_rack" in flags
+    assert "missing_rack" not in flags
     assert "missing_category" in flags
     assert "missing_price" in flags
     assert "missing_date_in" in flags

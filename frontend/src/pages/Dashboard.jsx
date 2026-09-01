@@ -22,6 +22,8 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { useAuth } from "@/context/AuthContext";
+import { isAdmin } from "@/lib/auth";
 
 const ease = [0.22, 1, 0.36, 1];
 const panel =
@@ -46,13 +48,23 @@ function startOfWeekIso() {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const showPayouts = isAdmin(user);
   const [data, setData] = useState(null);
+  const [pendingDropOffs, setPendingDropOffs] = useState([]);
   const [period, setPeriod] = useState("week");
   const nav = useNavigate();
 
   useEffect(() => {
     api.get(`/dashboard?period=${period}`).then((r) => setData(r.data));
   }, [period]);
+
+  useEffect(() => {
+    api
+      .get("/drop-offs?status=needs_assessment")
+      .then((r) => setPendingDropOffs(r.data || []))
+      .catch(() => setPendingDropOffs([]));
+  }, []);
 
   const chartData = useMemo(() => {
     if (!data) return [];
@@ -83,9 +95,10 @@ export default function Dashboard() {
   }, [data]);
 
   const alertCount =
+    pendingDropOffs.length +
     (data?.alerts.expiring_soon?.length || 0) +
     (data?.alerts.expired?.length || 0) +
-    (data?.alerts.stale_balances?.length || 0);
+    (showPayouts ? data?.alerts.stale_balances?.length || 0 : 0);
 
   const secondaryStats = [
     {
@@ -94,7 +107,7 @@ export default function Dashboard() {
       sub: "On the floor",
       testid: "stat-active-items",
     },
-    {
+    showPayouts && {
       label: "Payouts owed",
       value: fmtMoney(data?.payouts_owed),
       sub: "Pending balances",
@@ -107,7 +120,7 @@ export default function Dashboard() {
       sub: "Active relationships",
       testid: "stat-total-consignors",
     },
-  ];
+  ].filter(Boolean);
 
   return (
     <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5 md:space-y-6">
@@ -171,7 +184,7 @@ export default function Dashboard() {
                 data-testid="quick-new-intake"
                 variant="outline"
                 className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-                onClick={() => nav("/consignors?intake=1")}
+                onClick={() => nav("/drop-off")}
               >
                 <Plus size={14} className="md:mr-1" />
                 <span className="hidden md:inline">New Drop Off</span>
@@ -204,7 +217,7 @@ export default function Dashboard() {
               <Button
                 data-testid="quick-add-consignor"
                 className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-                onClick={() => nav("/consignors?new=1")}
+                onClick={() => nav("/drop-off")}
               >
                 <Users size={14} className="md:mr-1" />
                 <span className="hidden md:inline">Add Consignor</span>
@@ -394,6 +407,33 @@ export default function Dashboard() {
         <div className="ee-alerts-grid">
           <div className="min-w-0">
             <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+              <Users size={12} className="shrink-0" /> Awaiting assessment
+            </div>
+            <ul className="mt-2.5 space-y-2 text-sm">
+              {pendingDropOffs.slice(0, 5).map((d) => (
+                <li key={d.id} className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => nav(`/drop-off/${d.id}/assess`)}
+                    className="text-left w-full hover:text-[var(--ee-magenta)]"
+                  >
+                    <div className="text-[13px] leading-snug font-medium">
+                      {d.consignor_name || d.consignor_id}
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-0.5">
+                      {d.consignor_id}
+                      {d.signed_at ? ` · signed ${fmtDateTime(d.signed_at)}` : ""}
+                    </div>
+                  </button>
+                </li>
+              ))}
+              {pendingDropOffs.length === 0 && (
+                <li className="text-xs text-neutral-400 font-light">All clear.</li>
+              )}
+            </ul>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
               <Clock size={12} className="shrink-0" /> Expiring · 7 days
             </div>
             <ul className="mt-2.5 space-y-2 text-sm">
@@ -430,27 +470,29 @@ export default function Dashboard() {
               )}
             </ul>
           </div>
-          <div className="min-w-0">
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
-              <Clock size={12} className="shrink-0" /> Unpaid · 14+ days
+          {showPayouts ? (
+            <div className="min-w-0">
+              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+                <Clock size={12} className="shrink-0" /> Unpaid · 14+ days
+              </div>
+              <ul className="mt-2.5 space-y-2 text-sm">
+                {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
+                  <li
+                    key={b.consignor_id}
+                    className="flex items-baseline justify-between gap-3 min-w-0"
+                  >
+                    <span className="min-w-0 truncate">{b.full_name}</span>
+                    <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
+                      {fmtMoney(b.balance)}
+                    </span>
+                  </li>
+                ))}
+                {(!data?.alerts.stale_balances || data.alerts.stale_balances.length === 0) && (
+                  <li className="text-xs text-neutral-400 font-light">All clear.</li>
+                )}
+              </ul>
             </div>
-            <ul className="mt-2.5 space-y-2 text-sm">
-              {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
-                <li
-                  key={b.consignor_id}
-                  className="flex items-baseline justify-between gap-3 min-w-0"
-                >
-                  <span className="min-w-0 truncate">{b.full_name}</span>
-                  <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
-                    {fmtMoney(b.balance)}
-                  </span>
-                </li>
-              ))}
-              {(!data?.alerts.stale_balances || data.alerts.stale_balances.length === 0) && (
-                <li className="text-xs text-neutral-400 font-light">All clear.</li>
-              )}
-            </ul>
-          </div>
+          ) : null}
         </div>
       </motion.section>
 

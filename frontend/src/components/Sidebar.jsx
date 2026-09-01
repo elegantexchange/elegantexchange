@@ -5,7 +5,8 @@ import { useShell } from "@/context/ShellContext";
 import { useTour } from "@/context/TourContext";
 import { STORE } from "@/lib/brand";
 import { NAV_SECTIONS } from "@/constants/nav";
-import { hasRole, ROLE_LABELS, roleOf } from "@/lib/auth";
+import { hasRole, roleOf } from "@/lib/auth";
+import RolePreviewMenu from "@/components/RolePreviewMenu";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -107,11 +108,7 @@ export default function Sidebar() {
           <div className="text-[11px] text-neutral-500 truncate leading-[1.25] mt-0.5">
             {user?.name || "Boutique"}
           </div>
-          {user?.role ? (
-            <div className="text-[10px] tracking-[0.14em] uppercase font-semibold text-neutral-400 mt-0.5">
-              {ROLE_LABELS[roleOf(user)] || roleOf(user)}
-            </div>
-          ) : null}
+          <RolePreviewMenu />
         </div>
         <button
           data-testid="logout-btn"

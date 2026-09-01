@@ -28,7 +28,7 @@ export const NAV_SECTIONS = [
         label: "Payouts",
         icon: Wallet,
         testid: "nav-payouts",
-        roles: ["admin", "manager"],
+        roles: ["admin"],
       },
     ],
   },

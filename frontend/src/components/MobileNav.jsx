@@ -6,6 +6,7 @@ import { useTour } from "@/context/TourContext";
 import { LOGO_URL, STORE } from "@/lib/brand";
 import { NAV_SECTIONS } from "@/constants/nav";
 import { hasRole, roleOf } from "@/lib/auth";
+import RolePreviewMenu from "@/components/RolePreviewMenu";
 import {
   Sheet,
   SheetContent,
@@ -140,6 +141,7 @@ export default function MobileNav() {
               <div className="text-[11px] text-neutral-500 truncate leading-[1.25] mt-0.5">
                 {user?.name || "Boutique"}
               </div>
+              <RolePreviewMenu />
             </div>
             <button
               data-testid="mobile-logout-btn"

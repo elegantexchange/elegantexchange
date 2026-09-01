@@ -6,7 +6,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useShell } from "@/context/ShellContext";
 import { useTour } from "@/context/TourContext";
 import { api } from "@/lib/api";
-import { needsOnboarding, needsProductTour, roleOf } from "@/lib/auth";
+import {
+  clearPendingGuide,
+  hasPendingGuide,
+  needsOnboarding,
+  needsProductTour,
+  roleOf,
+} from "@/lib/auth";
 
 const TIP_W = 300;
 const TIP_GAP = 12;
@@ -27,7 +33,7 @@ function stepsForRole(role) {
       path: "/",
       target: '[data-testid="quick-new-intake"]',
       title: "New Drop Off",
-      body: "Start a drop-off here — choose an existing consignor or create one, then add pieces.",
+      body: "Start a client drop-off here — hand the iPad to the consignor for info and signature, then assess items after.",
       pointer: "top",
     },
     {
@@ -80,25 +86,26 @@ function stepsForRole(role) {
     },
   ];
 
+  if (role === "admin") {
+    base.push({
+      id: "payouts",
+      path: "/payouts",
+      target: '[data-testid="nav-payouts"]',
+      title: "Payouts",
+      body: "See what’s owed and record when a consignor is paid.",
+      pointer: "left",
+    });
+  }
+
   if (role === "manager" || role === "admin") {
-    base.push(
-      {
-        id: "payouts",
-        path: "/payouts",
-        target: '[data-testid="nav-payouts"]',
-        title: "Payouts",
-        body: "See what’s owed and record when a consignor is paid.",
-        pointer: "left",
-      },
-      {
-        id: "analytics",
-        path: "/analytics",
-        target: '[data-testid="nav-analytics"]',
-        title: "Analytics",
-        body: "Performance for the shop — revenue, sell-through, and trends.",
-        pointer: "left",
-      }
-    );
+    base.push({
+      id: "analytics",
+      path: "/analytics",
+      target: '[data-testid="nav-analytics"]',
+      title: "Analytics",
+      body: "Performance for the shop — revenue, sell-through, and trends.",
+      pointer: "left",
+    });
   }
 
   return base;
@@ -219,15 +226,22 @@ export default function ProductTour() {
 
   useEffect(() => {
     if (
-      user &&
-      !needsOnboarding(user) &&
-      needsProductTour(user) &&
-      !location.pathname.startsWith("/onboarding") &&
-      !tourOpen
+      !user ||
+      needsOnboarding(user) ||
+      location.pathname.startsWith("/onboarding") ||
+      tourOpen
     ) {
+      return;
+    }
+    // After sign-in, or first-time users who never finished the guide
+    if (hasPendingGuide() || needsProductTour(user)) {
       startTour(roleOf(user));
     }
   }, [user, location.pathname, tourOpen, startTour]);
+
+  useEffect(() => {
+    if (tourOpen) clearPendingGuide();
+  }, [tourOpen]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);

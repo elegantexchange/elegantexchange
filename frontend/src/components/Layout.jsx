@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { Outlet, Navigate, useLocation } from "react-router-dom";
 import { PanelLeft } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
@@ -8,6 +9,7 @@ import { TourProvider } from "@/context/TourContext";
 import { Toaster } from "@/components/ui/sonner";
 import { needsOnboarding } from "@/lib/auth";
 import ProductTour from "@/components/ProductTour";
+import WelcomeSplash from "@/components/WelcomeSplash";
 
 function ShellChrome() {
   const { sidebarOpen, setSidebarOpen } = useShell();
@@ -45,16 +47,23 @@ function ShellChrome() {
 export default function Layout() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-neutral-500 text-sm">
-        Loading…
-      </div>
-    );
-  if (!user) return <Navigate to="/login" replace />;
-  if (needsOnboarding(user) && location.pathname !== "/onboarding") {
+  const [greeted, setGreeted] = useState(false);
+  const finishGreeting = useCallback(() => setGreeted(true), []);
+
+  if (!loading && !user) return <Navigate to="/login" replace />;
+  if (user && needsOnboarding(user) && location.pathname !== "/onboarding") {
     return <Navigate to="/onboarding" replace />;
   }
+  if (loading || (!greeted && user && !needsOnboarding(user))) {
+    return (
+      <WelcomeSplash
+        user={user}
+        authLoading={loading}
+        onDone={finishGreeting}
+      />
+    );
+  }
+  if (!user) return null;
   return (
     <ShellProvider>
       <TourProvider>

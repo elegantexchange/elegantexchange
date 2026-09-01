@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { api, formatApiError } from "@/lib/api";
-import { ROLE_LABELS, roleOf } from "@/lib/auth";
+import { markPendingGuide, ROLE_LABELS, roleOf } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +47,7 @@ export default function Onboarding({ preview = false }) {
         phone: phone.trim(),
       });
       await refresh();
+      markPendingGuide();
       toast.success("You’re in — here’s a quick walkthrough");
       nav("/", { replace: true });
     } catch (e) {

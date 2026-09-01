@@ -56,8 +56,14 @@ export default function Login() {
         <img
           src={LOGO_URL}
           alt={STORE.name}
-          className="w-56 h-20 mx-auto object-cover object-center mb-6"
+          className="w-56 h-20 mx-auto object-cover object-center mb-3"
         />
+        <p
+          data-testid="login-internal-use"
+          className="text-center text-[10px] tracking-[0.18em] uppercase font-semibold text-neutral-400 mb-6"
+        >
+          For Internal Use Only
+        </p>
 
         <div className="space-y-4">
           <div>

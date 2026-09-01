@@ -14,7 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Download, Flag, Mail, Phone, Plus, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
-import IntakeDialog from "@/components/IntakeDialog";
+import { useAuth } from "@/context/AuthContext";
+import { isManagerOrAdmin } from "@/lib/auth";
 
 const FLAG_LABELS = {
   missing_name: "Missing name",
@@ -64,10 +65,10 @@ function flagLabel(flag) {
   return FLAG_LABELS[flag] || flag;
 }
 
-function toneFor(c) {
+function toneFor(c, showFinance) {
   const flags = c.import_flags || [];
   if (c.needs_review || flags.length > 0) return TONES.review;
-  if ((c.total_owed || 0) > 0) return TONES.owed;
+  if (showFinance && (c.total_owed || 0) > 0) return TONES.owed;
   return TONES.settled;
 }
 
@@ -82,23 +83,28 @@ function initials(name) {
 }
 
 export default function Consignors() {
+  const { user } = useAuth();
+  const showFinance = isManagerOrAdmin(user);
   const [list, setList] = useState([]);
   const [q, setQ] = useState("");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
-  const [params, setParams] = useSearchParams();
-  const [openIntake, setOpenIntake] = useState(
-    params.get("intake") === "1" || params.get("new") === "1"
-  );
+  const [params] = useSearchParams();
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const fileRef = useRef(null);
-  const intakePresetMode = params.get("new") === "1" ? "new" : "existing";
   const nav = useNavigate();
 
   const load = () => api.get("/consignors").then((r) => setList(r.data));
   useEffect(() => {
     load();
   }, []);
+
+  // Legacy staff intake URLs → client Typeform
+  useEffect(() => {
+    if (params.get("intake") === "1" || params.get("new") === "1") {
+      nav("/drop-off", { replace: true });
+    }
+  }, [params, nav]);
 
   const flaggedCount = useMemo(
     () => list.filter((c) => c.needs_review || (c.import_flags || []).length > 0).length,
@@ -182,7 +188,7 @@ export default function Consignors() {
           </h1>
           <p className="text-sm text-neutral-500 mt-1">
             {list.length} consignor{list.length === 1 ? "" : "s"} on file
-            {list.length > 0 ? ` · ${fmtMoney(totalOwed)} owed` : ""}
+            {showFinance && list.length > 0 ? ` · ${fmtMoney(totalOwed)} owed` : ""}
             {flaggedCount ? ` · ${flaggedCount} need review` : ""}
           </p>
         </div>
@@ -221,7 +227,7 @@ export default function Consignors() {
           <Button
             data-testid="open-intake-btn"
             className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-            onClick={() => setOpenIntake(true)}
+            onClick={() => nav("/drop-off")}
           >
             <Plus size={14} className="md:mr-1" />
             <span className="hidden md:inline">New Drop Off</span>
@@ -280,7 +286,7 @@ export default function Consignors() {
       >
         {filtered.map((c, i) => {
           const flags = c.import_flags || [];
-          const tone = toneFor(c);
+          const tone = toneFor(c, showFinance);
           return (
             <motion.button
               key={c.consignor_id}
@@ -316,39 +322,56 @@ export default function Consignors() {
                         {c.consignor_id}
                       </div>
                     </div>
-                    <span
-                      className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border shrink-0"
-                      style={{
-                        color: tone.ink,
-                        background: tone.soft,
-                        borderColor: tone.border,
-                      }}
-                    >
-                      {tone.label}
-                    </span>
+                    {(showFinance || flags.length > 0) ? (
+                      <span
+                        className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border shrink-0"
+                        style={{
+                          color: tone.ink,
+                          background: tone.soft,
+                          borderColor: tone.border,
+                        }}
+                      >
+                        {tone.label}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 flex items-end justify-between gap-3">
-                <div>
-                  <div className="text-[10px] tracking-[0.16em] uppercase text-neutral-500 font-semibold">
-                    Owed
-                  </div>
-                  <div
-                    className="text-xl font-bold tabular-nums mt-0.5"
-                    style={{
-                      color: (c.total_owed || 0) > 0 ? tone.ink : "#a3a3a3",
-                    }}
-                  >
-                    {fmtMoney(c.total_owed)}
-                  </div>
-                </div>
-                <div className="text-right text-[11px] text-neutral-500">
+                {showFinance ? (
                   <div>
-                    {c.active_items} active
+                    <div className="text-[10px] tracking-[0.16em] uppercase text-neutral-500 font-semibold">
+                      Owed
+                    </div>
+                    <div
+                      className="text-xl font-bold tabular-nums mt-0.5"
+                      style={{
+                        color: (c.total_owed || 0) > 0 ? tone.ink : "#a3a3a3",
+                      }}
+                    >
+                      {fmtMoney(c.total_owed)}
+                    </div>
                   </div>
-                  <div>{c.payout_method || "—"}</div>
+                ) : (
+                  <div>
+                    <div className="text-[10px] tracking-[0.16em] uppercase text-neutral-500 font-semibold">
+                      On floor
+                    </div>
+                    <div className="text-xl font-bold tabular-nums mt-0.5" style={{ color: tone.ink }}>
+                      {c.active_items}
+                    </div>
+                  </div>
+                )}
+                <div className="text-right text-[11px] text-neutral-500">
+                  {showFinance ? (
+                    <>
+                      <div>{c.active_items} active</div>
+                      <div>{c.payout_method || "—"}</div>
+                    </>
+                  ) : (
+                    <div>{c.active_items} active item{c.active_items === 1 ? "" : "s"}</div>
+                  )}
                 </div>
               </div>
 
@@ -383,18 +406,6 @@ export default function Consignors() {
           No consignors match.
         </div>
       )}
-
-      <IntakeDialog
-        open={openIntake}
-        presetMode={intakePresetMode}
-        onClose={() => {
-          setOpenIntake(false);
-          params.delete("intake");
-          params.delete("new");
-          setParams(params);
-        }}
-        onDone={() => load()}
-      />
 
       <Dialog open={!!importResult} onOpenChange={(o) => !o && setImportResult(null)}>
         <DialogContent data-testid="import-summary-dialog" className="max-w-lg">

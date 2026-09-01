@@ -472,7 +472,7 @@ function StepItems({ items, setItem, setItems, onScan }) {
                 <th className="ee-table-header text-left px-3 py-2">Category</th>
                 <th className="ee-table-header text-left px-3 py-2">Size</th>
                 <th className="ee-table-header text-left px-3 py-2">Condition</th>
-                <th className="ee-table-header text-left px-3 py-2">Price</th>
+                <th className="ee-table-header text-left px-3 py-2">Listing price</th>
                 <th></th>
               </tr>
             </thead>

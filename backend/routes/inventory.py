@@ -16,9 +16,10 @@ from models import (
     InventoryItemUpdate,
     ScanAssistResult,
 )
-from auth import get_current_user, require_roles
+from auth import get_current_user, normalize_role, require_roles
 from id_gen import next_item_id
 from boutique_settings import current_consignor_split_pct
+from categorize import capitalize_description, infer_category
 from csv_import_utils import (
     cell,
     map_headers,
@@ -225,9 +226,7 @@ def _compute_item_flags(
     flags: list[str] = []
     if len(description.strip()) < 2:
         flags.append("missing_description")
-    if not rack.strip():
-        flags.append("missing_rack")
-    # Notion sheets often omit category; only flag when an unknown value was supplied
+    # Racks are no longer a review requirement
     if category_raw.strip() and not category_known and not category_inferred:
         flags.append("unknown_category")
     elif not category_raw.strip() and not category_inferred:
@@ -341,12 +340,16 @@ async def create_item(
     date_in = body.date_in or _today_iso()
     item_id = await next_item_id(db, body.consignor_id)
     split_pct = await current_consignor_split_pct(db)
+    description = capitalize_description(body.description)
+    category = body.category or infer_category(description, body.rack or "")
+    if category not in CATEGORIES:
+        category = infer_category(description, body.rack or "", category)
     doc = {
         "id": str(uuid.uuid4()),
         "item_id": item_id,
         "consignor_id": body.consignor_id,
-        "description": body.description,
-        "category": body.category,
+        "description": description,
+        "category": category if category in CATEGORIES else "Other",
         "size": body.size or "",
         "condition": body.condition or "",
         "asking_price": float(body.asking_price),
@@ -549,9 +552,16 @@ async def import_inventory(
         category_inferred = False
         if category_raw.strip():
             category, category_known = _norm_category(category_raw)
+            if category == "Other" or not category_known:
+                smart = infer_category(description, rack, category)
+                if smart != "Other":
+                    category, category_known = smart, True
+                    category_inferred = True
         else:
-            inferred = _infer_category_from_rack(rack)
-            if inferred:
+            inferred = _infer_category_from_rack(rack) or infer_category(
+                description, rack
+            )
+            if inferred and inferred != "Other":
                 category, category_known = inferred, True
                 category_inferred = True
             else:
@@ -560,7 +570,7 @@ async def import_inventory(
         date_in, date_ok = parse_flexible_date(date_raw)
 
         # Still import incomplete rows with defaults
-        display_desc = (
+        display_desc = capitalize_description(
             description if len(description) >= 2 else "(Description needed)"
         )
         if price is None or not price_ok:
@@ -680,6 +690,10 @@ async def update_item(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         return {"ok": True}
+    if normalize_role(_u.get("role")) == "retail" and "asking_price" in updates:
+        raise HTTPException(
+            status_code=403, detail="Retail cannot change listing price"
+        )
     if "media" in updates:
         updates["media"] = _normalize_media(updates["media"])
     if "import_flags" in updates:

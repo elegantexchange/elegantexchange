@@ -44,6 +44,33 @@ export function needsProductTour(user) {
   return !user.product_tour_completed_at;
 }
 
+const PENDING_GUIDE_KEY = "ee_pending_guide";
+
+/** Mark that the in-app guide should open after the next shell load (post-login). */
+export function markPendingGuide() {
+  try {
+    sessionStorage.setItem(PENDING_GUIDE_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function hasPendingGuide() {
+  try {
+    return sessionStorage.getItem(PENDING_GUIDE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function clearPendingGuide() {
+  try {
+    sessionStorage.removeItem(PENDING_GUIDE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export const ROLE_LABELS = {
   admin: "Admin",
   manager: "Manager",
@@ -54,6 +81,34 @@ export const ROLE_LABELS = {
 export const isUiOnly =
   String(process.env.REACT_APP_UI_ONLY || "").toLowerCase() === "true" ||
   process.env.REACT_APP_UI_ONLY === "1";
+
+/** Role-preview switcher is localhost-only (never on deployed hosts). */
+export const isLocalHost =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
+
+/** Personas for local sidebar role preview (UI only — API still uses signed-in session). */
+export const ROLE_PREVIEW_PERSONAS = [
+  {
+    id: "admin",
+    name: "Johan",
+    role: "admin",
+    email: "johan@elegantexchange.co",
+  },
+  {
+    id: "manager",
+    name: "Noah",
+    role: "manager",
+    email: "noah@elegantexchange.co",
+  },
+  {
+    id: "retail",
+    name: "Tai",
+    role: "retail",
+    email: "tai@elegantexchange.co",
+  },
+];
 
 export const MOCK_OWNER = {
   id: "ui-only",

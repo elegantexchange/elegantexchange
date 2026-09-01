@@ -423,7 +423,7 @@ export default function ItemScanDialog({ open, onClose, onConfirm, confirmLabel 
                 />
               </div>
               <div>
-                <Label className="text-[10px] tracking-[0.14em] uppercase">Text ID</Label>
+                <Label className="text-[10px] tracking-[0.14em] uppercase">ID</Label>
                 <Input
                   value={draft.text_id}
                   onChange={(e) => updateDraft({ text_id: e.target.value })}
@@ -487,7 +487,7 @@ export default function ItemScanDialog({ open, onClose, onConfirm, confirmLabel 
                 />
               </div>
               <div>
-                <Label className="text-[10px] tracking-[0.14em] uppercase">Price</Label>
+                <Label className="text-[10px] tracking-[0.14em] uppercase">Listing price</Label>
                 <Input
                   data-testid="scan-price"
                   type="number"

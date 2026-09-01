@@ -21,6 +21,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { isManagerOrAdmin, roleOf } from "@/lib/auth";
 
 const TONES = {
   pending: {
@@ -39,13 +41,22 @@ const TONES = {
     accent: "#6f9a7e",
     avatar: "#e4f0e8",
   },
+  sale: {
+    label: "Sold",
+    ink: "#8b1f6b",
+    soft: "#f8eef5",
+    border: "#e8cfe0",
+    accent: "#8b1f6b",
+    avatar: "#f0dceb",
+  },
 };
 
 const ease = [0.22, 1, 0.36, 1];
 const panel =
   "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
 
-function toneFor(s) {
+function toneFor(s, retailView) {
+  if (retailView) return TONES.sale;
   return s.payout_status === "Paid" ? TONES.paid : TONES.pending;
 }
 
@@ -66,6 +77,9 @@ function splitPctForItem(item) {
 }
 
 export default function Sales() {
+  const { user } = useAuth();
+  const retailView = roleOf(user) === "retail";
+  const showFinance = isManagerOrAdmin(user);
   const [sales, setSales] = useState([]);
   const [q, setQ] = useState("");
   const [payoutFilter, setPayoutFilter] = useState("All");
@@ -81,13 +95,19 @@ export default function Sales() {
     api.get("/square/status").then((r) => setSquare(r.data)).catch(() => null);
   useEffect(() => {
     load();
-    loadSquare();
-  }, []);
+    if (showFinance) loadSquare();
+  }, [showFinance]);
 
   const filtered = useMemo(() => {
     const t = q.toLowerCase().trim();
     return sales.filter((s) => {
-      if (payoutFilter !== "All" && s.payout_status !== payoutFilter) return false;
+      if (
+        showFinance &&
+        payoutFilter !== "All" &&
+        s.payout_status !== payoutFilter
+      ) {
+        return false;
+      }
       if (!t) return true;
       return (
         s.item_id.toLowerCase().includes(t) ||
@@ -96,7 +116,7 @@ export default function Sales() {
         (s.description || "").toLowerCase().includes(t)
       );
     });
-  }, [sales, q, payoutFilter]);
+  }, [sales, q, payoutFilter, showFinance]);
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -114,14 +134,15 @@ export default function Sales() {
   );
 
   const totalSales = sales.reduce((acc, s) => acc + s.sale_price, 0);
-  const totalStore = sales.reduce((acc, s) => acc + s.store_cut, 0);
+  const totalStore = sales.reduce((acc, s) => acc + (s.store_cut || 0), 0);
 
   const activeChips = [
-    payoutFilter !== "All" && {
-      key: "payout",
-      label: payoutFilter === "Pending" ? "Payout pending" : "Paid out",
-      clear: () => setPayoutFilter("All"),
-    },
+    showFinance &&
+      payoutFilter !== "All" && {
+        key: "payout",
+        label: payoutFilter === "Pending" ? "Payout pending" : "Paid out",
+        clear: () => setPayoutFilter("All"),
+      },
   ].filter(Boolean);
 
   const sync = async () => {
@@ -137,7 +158,7 @@ export default function Sales() {
     }
   };
 
-  const focusedTone = focused ? toneFor(focused) : null;
+  const focusedTone = focused ? toneFor(focused, retailView) : null;
 
   return (
     <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5">
@@ -152,12 +173,13 @@ export default function Sales() {
             Sales
           </h1>
           <p className="text-sm text-neutral-500 mt-1">
-            {sales.length} sale{sales.length === 1 ? "" : "s"} · {fmtMoney(totalSales)} total ·{" "}
-            {fmtMoney(totalStore)} store · {filtered.length} shown
+            {sales.length} sale{sales.length === 1 ? "" : "s"} · {fmtMoney(totalSales)} total
+            {showFinance ? ` · ${fmtMoney(totalStore)} store` : ""} · {filtered.length}{" "}
+            shown
           </p>
         </div>
         <div className="ee-page-actions">
-          {square?.connected && (
+          {showFinance && square?.connected && (
             <Button
               data-testid="sync-square-btn"
               variant="outline"
@@ -194,27 +216,29 @@ export default function Sales() {
             className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
           />
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="sales-add-filter-btn"
-              className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
-            >
-              <SlidersHorizontal size={14} className="md:mr-1" />
-              <span className="hidden sm:inline">Add filter</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => setPayoutFilter("Pending")}>
-              Payout pending
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setPayoutFilter("Paid")}>
-              Paid out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {showFinance ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="sales-add-filter-btn"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
+              >
+                <SlidersHorizontal size={14} className="md:mr-1" />
+                <span className="hidden sm:inline">Add filter</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => setPayoutFilter("Pending")}>
+                Payout pending
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPayoutFilter("Paid")}>
+                Paid out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       {activeChips.length > 0 && (
@@ -240,14 +264,19 @@ export default function Sales() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-600">
-        {Object.values(TONES).map((t) => (
-          <div key={t.label} className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.accent }} />
-            {t.label}
-          </div>
-        ))}
-      </div>
+      {showFinance ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-600">
+          {[TONES.pending, TONES.paid].map((t) => (
+            <div key={t.label} className="inline-flex items-center gap-1.5">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: t.accent }}
+              />
+              {t.label}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="flex flex-col lg:flex-row gap-4">
         <div
@@ -259,7 +288,7 @@ export default function Sales() {
           <div data-testid="sales-tbody" className="ee-scroll-hide overflow-y-auto flex-1 min-h-0">
             <ul className="divide-y divide-[var(--ee-sidebar-border)]">
               {filtered.map((s) => {
-                const tone = toneFor(s);
+                const tone = toneFor(s, retailView);
                 const on = focusId === s.id;
                 return (
                   <li key={s.id}>
@@ -279,7 +308,7 @@ export default function Sales() {
                           {s.description || s.item_id}
                         </div>
                         <div className="text-[10px] text-neutral-500 truncate mt-0.5">
-                          {fmtDate(s.sale_date)} · {s.consignor_id} · {s.consignor_name}
+                          {fmtDate(s.sale_date)} · {s.consignor_name || s.consignor_id}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -289,12 +318,14 @@ export default function Sales() {
                         >
                           {fmtMoney(s.sale_price)}
                         </div>
-                        <div
-                          className="text-[9px] uppercase tracking-[0.1em] font-semibold mt-0.5"
-                          style={{ color: tone.ink }}
-                        >
-                          {tone.label}
-                        </div>
+                        {!retailView ? (
+                          <div
+                            className="text-[9px] uppercase tracking-[0.1em] font-semibold mt-0.5"
+                            style={{ color: tone.ink }}
+                          >
+                            {tone.label}
+                          </div>
+                        ) : null}
                       </div>
                     </button>
                   </li>
@@ -356,46 +387,65 @@ export default function Sales() {
                       >
                         {fmtMoney(focused.sale_price)}
                       </div>
-                      <span
-                        className="inline-flex mt-1 text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
-                        style={{
-                          color: focusedTone.ink,
-                          background: focusedTone.soft,
-                          borderColor: focusedTone.border,
-                        }}
-                      >
-                        {focusedTone.label}
-                      </span>
+                      {!retailView ? (
+                        <span
+                          className="inline-flex mt-1 text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
+                          style={{
+                            color: focusedTone.ink,
+                            background: focusedTone.soft,
+                            borderColor: focusedTone.border,
+                          }}
+                        >
+                          {focusedTone.label}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                {[
-                  [
-                    "Consignor",
-                    <button
-                      key="c"
-                      type="button"
-                      onClick={() => nav(`/consignors/${focused.consignor_id}`)}
-                      className="hover:text-[var(--ee-magenta)] text-left truncate"
-                    >
-                      {focused.consignor_name} · {focused.consignor_id}
-                    </button>,
-                  ],
-                  ["Sale price", fmtMoney(focused.sale_price)],
-                  ["Store cut", fmtMoney(focused.store_cut)],
-                  ["Consignor cut", fmtMoney(focused.consignor_cut)],
-                  [
-                    "Split",
-                    focused.consignor_split_pct != null
-                      ? `${focused.consignor_split_pct}% consignor`
-                      : "Legacy 50%",
-                  ],
-                  ["Payout", focused.payout_status],
-                  ["Notes", focused.notes || "—"],
-                ].map(([label, value]) => (
+                {(retailView
+                  ? [
+                      [
+                        "Consignor",
+                        <button
+                          key="c"
+                          type="button"
+                          onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                          className="hover:text-[var(--ee-magenta)] text-left truncate"
+                        >
+                          {focused.consignor_name} · {focused.consignor_id}
+                        </button>,
+                      ],
+                      ["Sale price", fmtMoney(focused.sale_price)],
+                      ["Sold", fmtDate(focused.sale_date)],
+                    ]
+                  : [
+                      [
+                        "Consignor",
+                        <button
+                          key="c"
+                          type="button"
+                          onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                          className="hover:text-[var(--ee-magenta)] text-left truncate"
+                        >
+                          {focused.consignor_name} · {focused.consignor_id}
+                        </button>,
+                      ],
+                      ["Sale price", fmtMoney(focused.sale_price)],
+                      ["Store cut", fmtMoney(focused.store_cut)],
+                      ["Consignor cut", fmtMoney(focused.consignor_cut)],
+                      [
+                        "Split",
+                        focused.consignor_split_pct != null
+                          ? `${focused.consignor_split_pct}% consignor`
+                          : "Legacy 50%",
+                      ],
+                      ["Payout", focused.payout_status],
+                      ["Notes", focused.notes || "—"],
+                    ]
+                ).map(([label, value]) => (
                   <div key={label} className="min-w-0">
                     <div className="text-[10px] tracking-[0.14em] uppercase text-neutral-500 font-semibold">
                       {label}
@@ -428,6 +478,7 @@ export default function Sales() {
 
       <LogSaleDialog
         open={open}
+        retailView={retailView}
         onClose={() => {
           setOpen(false);
           params.delete("new");
@@ -439,7 +490,7 @@ export default function Sales() {
   );
 }
 
-function LogSaleDialog({ open, onClose, onCreated }) {
+function LogSaleDialog({ open, onClose, onCreated, retailView }) {
   const [items, setItems] = useState([]);
   const [itemId, setItemId] = useState("");
   const [salePrice, setSalePrice] = useState("");
@@ -543,7 +594,7 @@ function LogSaleDialog({ open, onClose, onCreated }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mt-2">
+        <div className={`grid gap-3 mt-2 ${retailView ? "grid-cols-1" : "grid-cols-2"}`}>
           <div>
             <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
               Sale Price
@@ -556,27 +607,29 @@ function LogSaleDialog({ open, onClose, onCreated }) {
               placeholder="0.00"
             />
           </div>
-          <div className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-sidebar-border)] rounded-[8px] p-2 text-xs">
-            <div className="flex justify-between">
-              <span className="uppercase tracking-wider text-[10px] text-neutral-600 font-semibold">
-                Store ({storePct}%)
-              </span>
-              <span className="font-semibold">{fmtMoney(storeCut)}</span>
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="uppercase tracking-wider text-[10px] text-[var(--ee-magenta)] font-semibold">
-                Consignor ({consignorPct}%)
-              </span>
-              <span className="font-semibold text-[var(--ee-magenta)]">
-                {fmtMoney(consignorCut)}
-              </span>
-            </div>
-            {!selected && (
-              <div className="text-[10px] text-neutral-500 mt-1.5">
-                Select an item to see its locked split.
+          {!retailView ? (
+            <div className="bg-[var(--ee-magenta-soft)] border border-[var(--ee-sidebar-border)] rounded-[8px] p-2 text-xs">
+              <div className="flex justify-between">
+                <span className="uppercase tracking-wider text-[10px] text-neutral-600 font-semibold">
+                  Store ({storePct}%)
+                </span>
+                <span className="font-semibold">{fmtMoney(storeCut)}</span>
               </div>
-            )}
-          </div>
+              <div className="flex justify-between mt-1">
+                <span className="uppercase tracking-wider text-[10px] text-[var(--ee-magenta)] font-semibold">
+                  Consignor ({consignorPct}%)
+                </span>
+                <span className="font-semibold text-[var(--ee-magenta)]">
+                  {fmtMoney(consignorCut)}
+                </span>
+              </div>
+              {!selected && (
+                <div className="text-[10px] text-neutral-500 mt-1.5">
+                  Select an item to see its locked split.
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
         <div>
           <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
