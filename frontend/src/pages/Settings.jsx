@@ -9,6 +9,7 @@ import {
   chaptersForUser,
 } from "@/components/settings/SettingsPanels";
 import { ROLE_LABELS, roleOf } from "@/lib/auth";
+import { displayNameFor, displayRoleFor } from "@/lib/operator";
 import { toast } from "sonner";
 
 const ease = [0.22, 1, 0.36, 1];
@@ -62,10 +63,10 @@ export default function Settings() {
             </div>
             <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
               <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-                {user?.name || "Account"}
+                {displayNameFor(user)}
               </h2>
               <span className="mb-0.5 text-[10px] tracking-[0.16em] uppercase font-semibold px-2 py-1 rounded-[6px] bg-white/80 border border-[var(--ee-sidebar-border)] text-[var(--ee-magenta)]">
-                {ROLE_LABELS[roleOf(user)] || roleOf(user)}
+                {ROLE_LABELS[displayRoleFor(user)] || ROLE_LABELS[roleOf(user)] || "Owner"}
               </span>
             </div>
             <p className="text-sm text-neutral-600 mt-1">{user?.email}</p>

@@ -2,6 +2,14 @@
 
 export const SHARED_SHOP_EMAIL = "shop@elegantexchange.co";
 
+/** Floor presence → intended role label (shop@ login stays Owner/admin for API). */
+export const SHARED_OPERATOR_ROLES = {
+  youseline: "admin",
+  johan: "admin",
+  noah: "manager",
+  zachary: "retail",
+};
+
 export const SHARED_OPERATORS = [
   { id: "youseline", name: "Youseline" },
   { id: "johan", name: "Johan" },
@@ -29,6 +37,33 @@ export function readOperator() {
   } catch {
     return null;
   }
+}
+
+/** Name shown in chrome / Settings: floor presence when on shop@. */
+export function displayNameFor(user) {
+  if (needsOperatorPick(user)) {
+    const op = readOperator();
+    if (op?.name) return op.name;
+  }
+  const name = (user?.name || "").trim();
+  if (!name || /^owner$/i.test(name) || /^admin$/i.test(name)) {
+    return needsOperatorPick(user) ? "Boutique" : name || "Account";
+  }
+  return name;
+}
+
+/** Role key for badges: presence role on shop@, else account role. */
+export function displayRoleFor(user) {
+  if (needsOperatorPick(user)) {
+    const op = readOperator();
+    if (op?.id && SHARED_OPERATOR_ROLES[op.id]) {
+      return SHARED_OPERATOR_ROLES[op.id];
+    }
+  }
+  const key = (user?.role || "").toLowerCase();
+  if (key === "owner" || key === "admin") return "admin";
+  if (key === "manager") return "manager";
+  return "retail";
 }
 
 export function writeOperator(operator, { persist = false } = {}) {

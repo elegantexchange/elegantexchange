@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fmtDateTime, formatApiError, API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { ROLE_LABELS, roleOf, isAdmin } from "@/lib/auth";
-import { SHARED_SHOP_EMAIL } from "@/lib/operator";
+import { needsOperatorPick, readOperator, displayNameFor } from "@/lib/operator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,8 @@ export function chaptersForUser(user) {
 
 export function MyAccountPanel({ compact = false }) {
   const { user, refresh } = useAuth();
+  const sharedShop = needsOperatorPick(user);
+  const presence = sharedShop ? readOperator() : null;
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [password, setPassword] = useState("");
@@ -46,10 +48,11 @@ export function MyAccountPanel({ compact = false }) {
   }, [user]);
 
   const save = async () => {
-    if (!name.trim()) return toast.error("Name is required");
+    if (!sharedShop && !name.trim()) return toast.error("Name is required");
     setBusy(true);
     try {
-      const body = { name: name.trim(), phone: phone.trim() };
+      const body = { phone: phone.trim() };
+      if (!sharedShop) body.name = name.trim();
       if (password) {
         if (password.length < 8) {
           toast.error("Password must be at least 8 characters");
@@ -81,13 +84,31 @@ export function MyAccountPanel({ compact = false }) {
         <Input value={user?.email || ""} disabled className="mt-1 bg-neutral-50" />
       </div>
       <div>
-        <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">Name</Label>
-        <Input
-          data-testid="settings-account-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="mt-1"
-        />
+        <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+          {sharedShop ? "Signed in as" : "Name"}
+        </Label>
+        {sharedShop ? (
+          <>
+            <Input
+              data-testid="settings-account-name"
+              value={displayNameFor(user)}
+              disabled
+              className="mt-1 bg-neutral-50"
+            />
+            <p className="text-[12px] text-neutral-500 mt-1.5 font-light">
+              Floor presence for this shared shop login
+              {presence?.name ? ` · ${presence.name}` : ""}. Change person from the
+              welcome picker (sign out / sign in).
+            </p>
+          </>
+        ) : (
+          <Input
+            data-testid="settings-account-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="mt-1"
+          />
+        )}
       </div>
       <div>
         <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">Phone</Label>

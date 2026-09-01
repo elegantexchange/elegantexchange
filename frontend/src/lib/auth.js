@@ -104,9 +104,9 @@ export const ROLE_PREVIEW_PERSONAS = [
   },
   {
     id: "retail",
-    name: "Tai",
+    name: "Zachary",
     role: "retail",
-    email: "tai@elegantexchange.co",
+    email: "zachary@elegantexchange.co",
   },
 ];
 

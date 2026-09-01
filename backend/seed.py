@@ -18,6 +18,8 @@ async def seed_admin(db) -> None:
     admin_password = os.environ.get("ADMIN_PASSWORD", "ElegantExchange2026!")
     admin_name = os.environ.get("ADMIN_NAME", "Youseline")
     now = datetime.now(timezone.utc).isoformat()
+    placeholder_names = {"", "owner", "admin", "boutique", "the elegant exchange"}
+
     existing = await db.users.find_one({"email": admin_email})
     if not existing:
         await db.users.insert_one(
@@ -35,7 +37,11 @@ async def seed_admin(db) -> None:
             }
         )
     else:
-        updates = {"role": "admin", "name": admin_name}
+        updates = {"role": "admin"}
+        current_name = (existing.get("name") or "").strip()
+        # Don't keep role-like placeholders as the display name
+        if current_name.lower() in placeholder_names:
+            updates["name"] = admin_name
         # Keep local/dev seed admin from being forced through onboarding/tour
         if not existing.get("onboarding_completed_at"):
             updates["onboarding_completed_at"] = now
@@ -43,6 +49,37 @@ async def seed_admin(db) -> None:
         if not existing.get("product_tour_completed_at"):
             updates["product_tour_completed_at"] = now
         await db.users.update_one({"email": admin_email}, {"$set": updates})
+
+    # Floor team — individual logins (roles match glass presence)
+    team_temp_password = os.environ.get("TEAM_TEMP_PASSWORD", "ElegantTeam2026!")
+    team = [
+        ("johan@elegantexchange.co", "Johan", "admin"),
+        ("noah@elegantexchange.co", "Noah", "manager"),
+        ("zachary@elegantexchange.co", "Zachary", "retail"),
+    ]
+    for email, name, role in team:
+        email = email.lower()
+        found = await db.users.find_one({"email": email})
+        if not found:
+            await db.users.insert_one(
+                {
+                    "id": str(uuid.uuid4()),
+                    "email": email,
+                    "name": name,
+                    "role": role,
+                    "phone": "",
+                    "password_hash": hash_password(team_temp_password),
+                    "must_change_password": True,
+                    "onboarding_completed_at": None,
+                    "product_tour_completed_at": None,
+                    "created_at": now,
+                }
+            )
+        else:
+            await db.users.update_one(
+                {"email": email},
+                {"$set": {"name": name, "role": role}},
+            )
 
     # Optional retail demo
     retail_email = "staff@elegantexchange.co"

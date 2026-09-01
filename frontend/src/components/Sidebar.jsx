@@ -8,7 +8,7 @@ import { STORE } from "@/lib/brand";
 import { NAV_SECTIONS } from "@/constants/nav";
 import { hasRole, roleOf } from "@/lib/auth";
 import RolePreviewMenu from "@/components/RolePreviewMenu";
-import { needsOperatorPick, readOperator } from "@/lib/operator";
+import { needsOperatorPick, readOperator, displayNameFor } from "@/lib/operator";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -109,7 +109,7 @@ export default function Sidebar() {
             {STORE.name}
           </div>
           <div className="text-[11px] text-neutral-500 truncate leading-[1.25] mt-0.5">
-            {operator?.name || user?.name || "Boutique"}
+            {displayNameFor(user)}
           </div>
           <RolePreviewMenu />
         </div>
