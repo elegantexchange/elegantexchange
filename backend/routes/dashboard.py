@@ -30,9 +30,11 @@ async def dashboard(
         is_house_consignor_id,
         mark_legacy_unassigned_as_house,
     )
+    from test_data import is_test_consignor, scrub_test_consignors
 
     await mark_legacy_unassigned_as_house(db)
     await ensure_house_consignor(db)
+    await scrub_test_consignors(db)
     await scrub_donated_returned_pendings(db)
     await backfill_expired_floor_sales(db)
 
@@ -67,6 +69,8 @@ async def dashboard(
     async for c in db.consignors.find({}, {"_id": 0, "consignor_id": 1, "full_name": 1, "is_house": 1, "ownership": 1}):
         if is_house_consignor(c) or is_house_consignor_id(c.get("consignor_id")):
             continue
+        if is_test_consignor(c):
+            continue
         total_consignors += 1
 
     # Unsettled balances (pending consignor cuts) — Home Needs attention + Payouts owed
@@ -90,7 +94,7 @@ async def dashboard(
         if float(r.get("balance") or 0) <= 0:
             continue
         c = await db.consignors.find_one({"consignor_id": cid}, {"_id": 0})
-        if not c or is_house_consignor(c):
+        if not c or is_house_consignor(c) or is_test_consignor(c):
             continue
         oldest = r.get("oldest")
         days_pending = None
@@ -155,6 +159,8 @@ async def dashboard(
         {"_id": 0},
     ).sort("created_at", -1).limit(20):
         c = await db.consignors.find_one({"consignor_id": s["consignor_id"]}, {"_id": 0})
+        if c and is_test_consignor(c):
+            continue
         activity.append(
             {
                 "type": "sale",
@@ -172,6 +178,8 @@ async def dashboard(
     intake_n = 0
     async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(40):
         if is_house_consignor(c) or is_house_consignor_id(c.get("consignor_id")):
+            continue
+        if is_test_consignor(c):
             continue
         ts = c.get("created_at", "")
         if not ts or ts[:10] < week_start:
@@ -193,6 +201,8 @@ async def dashboard(
         if (not ts or ts[:10] < week_start) and (not paid or paid < week_start):
             continue
         c = await db.consignors.find_one({"consignor_id": p["consignor_id"]}, {"_id": 0})
+        if c and is_test_consignor(c):
+            continue
         activity.append(
             {
                 "type": "payout",

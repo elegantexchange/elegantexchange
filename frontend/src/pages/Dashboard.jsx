@@ -211,7 +211,7 @@ export default function Dashboard() {
               )}
             </div>
             <p className="mt-2 text-sm text-neutral-500">
-              Square charges + logged sales
+              Money taken in at the register today
             </p>
           </div>
 

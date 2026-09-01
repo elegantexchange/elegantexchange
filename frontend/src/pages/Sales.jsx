@@ -289,7 +289,7 @@ export default function Sales() {
                   size={14}
                   className={`md:mr-1 ${syncing ? "animate-spin" : ""}`}
                 />
-                <span className="hidden lg:inline">Sync</span>
+                <span className="hidden lg:inline">{syncing ? "Syncing…" : "Sync"}</span>
               </Button>
             )}
             <Button

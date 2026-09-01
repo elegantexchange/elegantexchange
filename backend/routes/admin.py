@@ -1,7 +1,6 @@
 """Owner-only admin operations."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +14,7 @@ from sale_ops import (
     scrub_donated_returned_pendings,
 )
 from house_stock import ensure_house_consignor, mark_legacy_unassigned_as_house
+from test_data import TEST_CONSIGNOR_NAME_RE, is_test_consignor, scrub_test_consignors
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -36,10 +36,7 @@ _DROP_INVENTORY_FLAGS = {
     "missing_rack",
     "restored_after_seed_cleanup",
 }
-_TEST_NAME_RE = re.compile(
-    r"^\s*(tai(\s+faustin)?|auto\s+id\s+skip\s+test(\s+\d+)?)\s*$",
-    re.I,
-)
+_TEST_NAME_RE = TEST_CONSIGNOR_NAME_RE
 
 
 @router.post("/reset-boutique-data")
@@ -58,35 +55,15 @@ async def boutique_hygiene(request: Request, _u: dict = Depends(require_roles("a
     """Clean test accounts, stale import flags, capitalize descriptions, smart-categorize."""
     db = request.app.state.db
 
-    # --- remove test consignors (Tai / Auto ID Skip Test*) and related rows ---
-    test_ids: list[str] = []
-    async for c in db.consignors.find({}, {"_id": 0, "consignor_id": 1, "full_name": 1}):
-        if _TEST_NAME_RE.match(c.get("full_name") or ""):
-            test_ids.append(c["consignor_id"])
-
+    # --- remove test consignors (Tai / Auto ID Skip Test* / DropOff Test) and related rows ---
+    scrubbed = await scrub_test_consignors(db)
     removed = {
-        "consignors": 0,
-        "inventory": 0,
-        "sales": 0,
-        "payouts": 0,
-        "drop_offs": 0,
+        "consignors": scrubbed["consignors"],
+        "inventory": scrubbed["inventory"],
+        "sales": scrubbed["sales"],
+        "payouts": scrubbed["payouts"],
+        "drop_offs": scrubbed["drop_offs"],
     }
-    if test_ids:
-        removed["consignors"] = (
-            await db.consignors.delete_many({"consignor_id": {"$in": test_ids}})
-        ).deleted_count
-        removed["inventory"] = (
-            await db.inventory.delete_many({"consignor_id": {"$in": test_ids}})
-        ).deleted_count
-        removed["sales"] = (
-            await db.sales.delete_many({"consignor_id": {"$in": test_ids}})
-        ).deleted_count
-        removed["payouts"] = (
-            await db.payouts.delete_many({"consignor_id": {"$in": test_ids}})
-        ).deleted_count
-        removed["drop_offs"] = (
-            await db.drop_offs.delete_many({"consignor_id": {"$in": test_ids}})
-        ).deleted_count
 
     # --- consignors: drop intentional/non-flags ---
     consignor_flag_clears = 0
@@ -185,7 +162,7 @@ async def replace_catalog(
     consignor_docs = []
     for raw in body.consignors:
         doc = {k: v for k, v in raw.items() if k != "_id"}
-        if _TEST_NAME_RE.match(doc.get("full_name") or ""):
+        if is_test_consignor(doc):
             continue
         flags = [
             f
@@ -200,12 +177,12 @@ async def replace_catalog(
     skip_cids = {
         c["consignor_id"]
         for c in consignor_docs
-        if _TEST_NAME_RE.match(c.get("full_name") or "")
+        if is_test_consignor(c)
     }
     # Also skip inventory for test names that were filtered out of consignors list
     test_cids_from_payload = set()
     for raw in body.consignors:
-        if _TEST_NAME_RE.match((raw or {}).get("full_name") or ""):
+        if is_test_consignor(raw or {}):
             if raw.get("consignor_id"):
                 test_cids_from_payload.add(raw["consignor_id"])
 

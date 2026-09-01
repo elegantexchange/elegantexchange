@@ -371,16 +371,12 @@ async def list_consignors(request: Request, _u: dict = Depends(get_current_user)
     balance_map = await _balances_map(db)
     consignors = await db.consignors.find({}, {"_id": 0}).to_list(5000)
     from house_stock import is_house_consignor
+    from test_data import is_test_consignor
 
     consignors = [
         c
         for c in consignors
-        if not is_house_consignor(c)
-        and not re.match(
-            r"^\s*auto\s+id\s+skip\s+test(\s+\d+)?\s*$",
-            c.get("full_name") or "",
-            re.I,
-        )
+        if not is_house_consignor(c) and not is_test_consignor(c)
     ]
     for c in consignors:
         cid = c["consignor_id"]

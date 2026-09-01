@@ -152,6 +152,7 @@ export function ShopPanel() {
   const [consignorSplitPct, setConsignorSplitPct] = useState(50);
   const [splitDraft, setSplitDraft] = useState("50");
   const [splitBusy, setSplitBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     api.get("/square/status").then((r) => setSquare(r.data)).catch(() => {});
@@ -200,11 +201,16 @@ export function ShopPanel() {
   };
 
   const sync = async () => {
+    setSyncing(true);
     try {
       const { data } = await api.post("/square/sync");
-      toast.success(`Matched ${data.matched}, ${data.unmatched} for review`);
+      toast.success(`Synced · ${data.matched} matched, ${data.unmatched} need review`);
+      const r = await api.get("/square/status");
+      setSquare(r.data);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -236,8 +242,6 @@ export function ShopPanel() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" aria-hidden />
                 <span className="text-neutral-800">Connected</span>
                 <span className="text-neutral-300">·</span>
-                <span className="text-neutral-500 truncate">{square.merchant_id}</span>
-                <span className="text-neutral-300">·</span>
                 <span className="text-neutral-400 text-xs uppercase tracking-[0.12em]">
                   {square.environment}
                 </span>
@@ -250,10 +254,12 @@ export function ShopPanel() {
               <button
                 type="button"
                 onClick={sync}
+                disabled={syncing}
                 data-testid="settings-sync-btn"
-                className="inline-flex items-center gap-1 text-[11px] text-neutral-600 hover:text-[var(--ee-ink)]"
+                className="inline-flex items-center gap-1 text-[11px] text-neutral-600 hover:text-[var(--ee-ink)] disabled:opacity-60"
               >
-                <RefreshCw size={12} /> Sync
+                <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+                {syncing ? "Syncing…" : "Sync"}
               </button>
               <button
                 type="button"
@@ -305,7 +311,7 @@ export function ShopPanel() {
 
         <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-neutral-100 mb-4">
           <div
-            className="h-full bg-[var(--ee-ink)] transition-[width] duration-150"
+            className="h-full bg-neutral-300 transition-[width] duration-150"
             style={{ width: `${storeDraft}%` }}
           />
           <div
