@@ -38,94 +38,98 @@ def _cors_origins() -> list[str]:
     return origins or ["*"]
 
 
+async def _boot_mongo(app: FastAPI) -> None:
+    """Connect Mongo after the HTTP server is already listening (Railway healthcheck)."""
+    mongo_url = (os.environ.get("MONGO_URL") or "").strip()
+    db_name = (os.environ.get("DB_NAME") or "").strip()
+    if not mongo_url or not db_name:
+        logger.error(
+            "Missing MONGO_URL or DB_NAME — API will stay unavailable until set"
+        )
+        return
+
+    attempt = 0
+    while True:
+        attempt += 1
+        client = None
+        try:
+            logger.info(
+                "MongoDB connect attempt %s · database=%s", attempt, db_name
+            )
+            client = AsyncIOMotorClient(
+                mongo_url,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+            )
+            db = client[db_name]
+            await client.admin.command("ping")
+
+            try:
+                await db.users.create_index("email", unique=True)
+                await db.consignors.create_index("consignor_id", unique=True)
+                await db.inventory.create_index("item_id", unique=True)
+                await db.inventory.create_index("consignor_id")
+                await db.inventory.create_index("status")
+                await db.sales.create_index("item_id")
+                await db.sales.create_index("consignor_id")
+                await db.sales.create_index("sale_date")
+                await db.payouts.create_index("consignor_id")
+                await db.square_sync_log.create_index("transaction_id", unique=True)
+                await db.drop_offs.create_index("status")
+                await db.drop_offs.create_index("consignor_id")
+                await db.drop_offs.create_index("created_at")
+            except Exception as e:
+                logger.warning("Index setup warning: %s", e)
+
+            await seed_admin(db)
+            if os.environ.get("SEED_DEMO", "").lower() in ("1", "true", "yes"):
+                await seed_demo(db)
+
+            app.state.mongo_client = client
+            app.state.db = db
+            app.state.db_ready = True
+            logger.info("MongoDB ready (attempt %s)", attempt)
+            return
+        except asyncio.CancelledError:
+            if client is not None:
+                client.close()
+            raise
+        except Exception as e:
+            if client is not None:
+                client.close()
+            logger.warning(
+                "MongoDB attempt %s failed: %s — retrying. "
+                "If this persists, allow 0.0.0.0/0 in Atlas Network Access.",
+                attempt,
+                e,
+            )
+            await asyncio.sleep(min(2 ** min(attempt, 4), 20))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    mongo_url = os.environ.get("MONGO_URL", "")
-    db_name = os.environ.get("DB_NAME", "")
-    if not mongo_url or not db_name:
-        logger.error("Missing MONGO_URL or DB_NAME — check Railway variables")
-        raise RuntimeError("MONGO_URL and DB_NAME are required")
-
-    logger.info("Connecting to MongoDB database=%s", db_name)
-    client = AsyncIOMotorClient(
-        mongo_url,
-        serverSelectionTimeoutMS=8000,
-    )
-    db = client[db_name]
-    app.state.mongo_client = client
-    app.state.db = db
+    # Critical for Railway: do not await Mongo (or anything slow) before yield.
+    # Uvicorn only accepts connections after lifespan startup finishes.
+    app.state.mongo_client = None
+    app.state.db = None
     app.state.db_ready = False
 
-    async def _ready_db() -> bool:
-        """Ping, indexes, seed. Returns True when usable."""
-        await client.admin.command("ping")
-        try:
-            await db.users.create_index("email", unique=True)
-            await db.consignors.create_index("consignor_id", unique=True)
-            await db.inventory.create_index("item_id", unique=True)
-            await db.inventory.create_index("consignor_id")
-            await db.inventory.create_index("status")
-            await db.sales.create_index("item_id")
-            await db.sales.create_index("consignor_id")
-            await db.sales.create_index("sale_date")
-            await db.payouts.create_index("consignor_id")
-            await db.square_sync_log.create_index("transaction_id", unique=True)
-            await db.drop_offs.create_index("status")
-            await db.drop_offs.create_index("consignor_id")
-            await db.drop_offs.create_index("created_at")
-        except Exception as e:
-            logger.warning("Index setup warning: %s", e)
-        await seed_admin(db)
-        if os.environ.get("SEED_DEMO", "").lower() in ("1", "true", "yes"):
-            await seed_demo(db)
-        return True
-
-    # One short attempt before we open the port — don't block Railway healthcheck.
-    try:
-        await _ready_db()
-        app.state.db_ready = True
-        logger.info("MongoDB ready on startup")
-    except Exception as e:
-        logger.warning(
-            "MongoDB not ready yet (%s) — serving healthchecks; retrying in background. "
-            "If this persists, check Atlas Network Access (allow 0.0.0.0/0) and MONGO_URL.",
-            e,
-        )
-
-    reconnect_task: asyncio.Task | None = None
-
-    async def _reconnect_loop():
-        attempt = 0
-        while not app.state.db_ready:
-            attempt += 1
-            try:
-                await _ready_db()
-                app.state.db_ready = True
-                logger.info("MongoDB ready (background attempt %s)", attempt)
-                return
-            except Exception as e:
-                logger.warning(
-                    "MongoDB retry %s failed: %s", attempt, e
-                )
-                await asyncio.sleep(min(2 ** min(attempt, 4), 20))
-
-    if not app.state.db_ready:
-        reconnect_task = asyncio.create_task(_reconnect_loop())
-
+    boot_task = asyncio.create_task(_boot_mongo(app))
     logger.info(
-        "Startup complete · PORT=%s · db_ready=%s · CORS=%s",
+        "HTTP ready · PORT=%s · CORS=%s · mongo booting in background",
         os.environ.get("PORT", "unset"),
-        app.state.db_ready,
         _cors_origins(),
     )
     yield
-    if reconnect_task and not reconnect_task.done():
-        reconnect_task.cancel()
-        try:
-            await reconnect_task
-        except asyncio.CancelledError:
-            pass
-    client.close()
+
+    boot_task.cancel()
+    try:
+        await boot_task
+    except asyncio.CancelledError:
+        pass
+    client = getattr(app.state, "mongo_client", None)
+    if client is not None:
+        client.close()
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +156,23 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def db_ready_gate(request, call_next):
+    """Avoid AttributeError while Mongo is still booting; keep health open."""
+    path = request.url.path.rstrip("/") or "/"
+    if path in ("/", "/health", "/api/health", "/api"):
+        return await call_next(request)
+    if not getattr(request.app.state, "db_ready", False):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            {"detail": "Database starting up — retry in a moment"},
+            status_code=503,
+        )
+    return await call_next(request)
+
+
 # Routers — included after middleware so the CORS layer is outermost
 for r in (
     auth_router,
@@ -169,16 +190,21 @@ for r in (
     app.include_router(r)
 
 
-@app.get("/api")
-async def root():
-    return {"app": "The Elegant Exchange", "ok": True}
-
-
-@app.get("/api/health")
+@app.get("/")
 @app.get("/health")
+@app.get("/api/health")
 async def health():
     """Liveness for Railway — always 200 once the process is listening."""
     return {
+        "ok": True,
+        "db": bool(getattr(app.state, "db_ready", False)),
+    }
+
+
+@app.get("/api")
+async def root():
+    return {
+        "app": "The Elegant Exchange",
         "ok": True,
         "db": bool(getattr(app.state, "db_ready", False)),
     }
