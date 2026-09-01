@@ -62,8 +62,12 @@ async def dashboard(
         2,
     )
 
-    # Total consignors
-    total_consignors = await db.consignors.count_documents({})
+    # Total consignors (exclude hidden house account)
+    total_consignors = 0
+    async for c in db.consignors.find({}, {"_id": 0, "consignor_id": 1, "full_name": 1, "is_house": 1, "ownership": 1}):
+        if is_house_consignor(c) or is_house_consignor_id(c.get("consignor_id")):
+            continue
+        total_consignors += 1
 
     # Unsettled balances (pending consignor cuts) — Home Needs attention + Payouts owed
     pending_pipeline = [
@@ -167,6 +171,8 @@ async def dashboard(
     # Cap new-consignor noise after bulk import (same preview budget as Needs attention)
     intake_n = 0
     async for c in db.consignors.find({}, {"_id": 0}).sort("created_at", -1).limit(40):
+        if is_house_consignor(c) or is_house_consignor_id(c.get("consignor_id")):
+            continue
         ts = c.get("created_at", "")
         if not ts or ts[:10] < week_start:
             continue

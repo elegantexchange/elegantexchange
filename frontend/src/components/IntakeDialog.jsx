@@ -409,7 +409,7 @@ function StepConsignor({
           type="button"
           data-testid="intake-mode-existing"
           onClick={() => setMode("existing")}
-          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+          className={`flex-1 min-w-[45%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "existing"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
@@ -422,7 +422,7 @@ function StepConsignor({
           type="button"
           data-testid="intake-mode-new"
           onClick={() => setMode("new")}
-          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+          className={`flex-1 min-w-[45%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
             mode === "new"
               ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
               : "border-[var(--ee-border)] text-neutral-600"
@@ -431,31 +431,9 @@ function StepConsignor({
           <span className="sm:hidden">New</span>
           <span className="hidden sm:inline">New Consignor</span>
         </button>
-        <button
-          type="button"
-          data-testid="intake-mode-house"
-          onClick={() => {
-            setMode("house");
-            setConsignorId("HOUSE");
-          }}
-          className={`flex-1 min-w-[30%] text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
-            mode === "house"
-              ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
-              : "border-[var(--ee-border)] text-neutral-600"
-          }`}
-        >
-          <span className="sm:hidden">House</span>
-          <span className="hidden sm:inline">In House</span>
-        </button>
       </div>
 
-      {mode === "house" ? (
-        <div className="rounded-[8px] border border-[var(--ee-sidebar-border)] bg-black/[0.02] px-3 py-3 text-sm text-neutral-600">
-          Owner-bought stock. Tagged as{" "}
-          <span className="font-semibold text-[var(--ee-ink)]">In House</span> —
-          100% store when sold, no consignor payout.
-        </div>
-      ) : mode === "existing" ? (
+      {mode === "existing" ? (
         <div>
           <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
             Consignor

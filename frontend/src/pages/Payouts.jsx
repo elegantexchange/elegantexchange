@@ -47,7 +47,7 @@ const TONES = {
     avatar: "#f0dceb",
   },
   fresh: {
-    label: "Recent sale",
+    label: "New unpaid",
     ink: "#3d6b52",
     soft: "#f3f8f4",
     border: "#d5e5da",
@@ -153,6 +153,10 @@ export default function Payouts() {
             {queue.length} in queue
             {queue.length > 0 ? ` · ${fmtMoney(totalOwed)} ready to pay` : ""}
             {overdueOnly ? ` · ${filtered.length} overdue` : ""}
+            <span className="text-neutral-400">
+              {" "}
+              · badges = how long the unpaid balance has been sitting (not Square)
+            </span>
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-w-0">
@@ -282,14 +286,14 @@ export default function Payouts() {
                 </div>
                 <div className="text-right text-[11px] text-neutral-500">
                   <div>
-                    {r.items_sold} item{r.items_sold === 1 ? "" : "s"}
+                    {r.items_sold} item{r.items_sold === 1 ? "" : "s"} owed
                   </div>
                   <div>
                     {(() => {
                       const d = daysPending(r);
-                      if (d == null) return "Pending sale";
-                      if (d >= 14) return `${d}d unpaid`;
-                      return `${d}d since sale`;
+                      if (d == null) return "Balance pending";
+                      if (d === 0) return "Unpaid today";
+                      return `${d}d unpaid`;
                     })()}
                   </div>
                   {(r.expired_items || 0) > 0 ? (

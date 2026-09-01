@@ -41,8 +41,11 @@ def _square_base() -> str:
     )
 
 
-def _api_base() -> str:
-    env = os.environ.get("SQUARE_ENVIRONMENT", "sandbox").lower()
+def _api_base(doc: dict | None = None) -> str:
+    env = (
+        ((doc or {}).get("environment") or "")
+        or os.environ.get("SQUARE_ENVIRONMENT", "sandbox")
+    ).lower()
     return (
         "https://connect.squareupsandbox.com"
         if env == "sandbox"
@@ -56,6 +59,74 @@ def _square_configured() -> bool:
         and os.environ.get("SQUARE_APPLICATION_SECRET")
         and os.environ.get("SQUARE_REDIRECT_URI")
     )
+
+
+async def _refresh_square_token(db, doc: dict) -> dict:
+    """Refresh Square access token when expired or near expiry."""
+    refresh = (doc or {}).get("refresh_token")
+    if not refresh or not _square_configured():
+        return doc or {}
+
+    expires_at = (doc.get("expires_at") or "").strip()
+    needs_refresh = True
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            needs_refresh = exp <= datetime.now(timezone.utc) + timedelta(days=1)
+        except Exception:
+            needs_refresh = True
+    if not needs_refresh:
+        return doc
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{_api_base(doc)}/oauth2/token",
+            json={
+                "client_id": os.environ["SQUARE_APPLICATION_ID"],
+                "client_secret": os.environ["SQUARE_APPLICATION_SECRET"],
+                "grant_type": "refresh_token",
+                "refresh_token": refresh,
+            },
+        )
+    if r.status_code >= 300:
+        detail = r.text
+        try:
+            detail = r.json()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Square login expired — open Settings → Square POS → Disconnect, "
+                f"then Connect again. ({detail})"
+            ),
+        )
+    data = r.json()
+    updates = {
+        "access_token": data.get("access_token") or doc.get("access_token"),
+        "expires_at": data.get("expires_at") or doc.get("expires_at"),
+        "refreshed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if data.get("refresh_token"):
+        updates["refresh_token"] = data["refresh_token"]
+    if data.get("merchant_id"):
+        updates["merchant_id"] = data["merchant_id"]
+    await db.square_connection.update_one({"_id": "default"}, {"$set": updates})
+    return {**doc, **updates}
+
+
+async def _square_auth_headers(db) -> tuple[dict, dict]:
+    """Return (headers, connection_doc) with a valid access token."""
+    doc = await db.square_connection.find_one({"_id": "default"})
+    if not doc or not doc.get("access_token"):
+        raise HTTPException(status_code=400, detail="Square is not connected")
+    doc = await _refresh_square_token(db, doc)
+    headers = {
+        "Authorization": f"Bearer {doc['access_token']}",
+        "Square-Version": "2024-10-17",
+        "Content-Type": "application/json",
+    }
+    return headers, doc
 
 
 def _pos_callback_url() -> str:
@@ -432,15 +503,11 @@ async def complete_charge(
 async def sync(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
     """Pull recent payments from Square and attempt to match by SKU/note to inventory."""
     db = request.app.state.db
-    doc = await db.square_connection.find_one({"_id": "default"})
-    if not doc or not doc.get("access_token"):
-        raise HTTPException(status_code=400, detail="Square is not connected")
+    try:
+        headers, doc = await _square_auth_headers(db)
+    except HTTPException:
+        raise
 
-    headers = {
-        "Authorization": f"Bearer {doc['access_token']}",
-        "Square-Version": "2024-10-17",
-        "Content-Type": "application/json",
-    }
     matched = 0
     unmatched = 0
     try:
@@ -460,12 +527,35 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                 if cursor:
                     params["cursor"] = cursor
                 r = await client.get(
-                    f"{_api_base()}/v2/payments",
+                    f"{_api_base(doc)}/v2/payments",
                     headers=headers,
                     params=params,
                 )
+                if r.status_code == 401:
+                    # Force refresh and retry once
+                    doc["expires_at"] = "2000-01-01T00:00:00Z"
+                    await db.square_connection.update_one(
+                        {"_id": "default"}, {"$set": {"expires_at": doc["expires_at"]}}
+                    )
+                    headers, doc = await _square_auth_headers(db)
+                    r = await client.get(
+                        f"{_api_base(doc)}/v2/payments",
+                        headers=headers,
+                        params=params,
+                    )
                 if r.status_code >= 300:
-                    raise HTTPException(status_code=400, detail=f"Square error: {r.text}")
+                    body_text = r.text
+                    if r.status_code == 401:
+                        raise HTTPException(
+                            status_code=401,
+                            detail=(
+                                "Square login expired — open Settings → Square POS → "
+                                "Disconnect, then Connect again."
+                            ),
+                        )
+                    raise HTTPException(
+                        status_code=400, detail=f"Square error: {body_text}"
+                    )
                 body = r.json()
                 batch = body.get("payments") or []
                 payments.extend(batch)
