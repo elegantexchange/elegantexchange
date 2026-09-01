@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from routes.auth_routes import router as auth_router
@@ -33,9 +35,26 @@ logger = logging.getLogger("elegant_exchange")
 
 
 def _cors_origins() -> list[str]:
+    """Merge env CORS_ORIGINS with known production frontends (credentials require explicit origins)."""
+    known = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://one.elegantexchange.co",
+        "https://elegantexchange.co",
+        "https://www.elegantexchange.co",
+    ]
     raw = os.environ.get("CORS_ORIGINS", "")
-    origins = [o.strip() for o in raw.split(",") if o.strip()]
-    return origins or ["*"]
+    from_env = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    frontend = (os.environ.get("FRONTEND_URL") or "").strip().rstrip("/")
+    merged: list[str] = []
+    for o in from_env + ([frontend] if frontend else []) + known:
+        if o and o not in merged and o != "*":
+            merged.append(o)
+    # Only fall back to wildcard when nothing explicit is configured at all
+    if not from_env and not frontend:
+        # still include known production hosts; never use * with credentials
+        return merged or known
+    return merged
 
 
 async def _boot_mongo(app: FastAPI) -> None:
@@ -44,9 +63,16 @@ async def _boot_mongo(app: FastAPI) -> None:
     db_name = (os.environ.get("DB_NAME") or "").strip()
     if not mongo_url or not db_name:
         logger.error(
-            "Missing MONGO_URL or DB_NAME — API will stay unavailable until set"
+            "Missing MONGO_URL or DB_NAME — set both in Railway Variables. "
+            "Login and API will stay unavailable until they are set."
         )
         return
+
+    if "localhost" in mongo_url or "127.0.0.1" in mongo_url:
+        logger.error(
+            "MONGO_URL points at localhost — Railway cannot reach it. "
+            "Use your MongoDB Atlas connection string (mongodb+srv://...)."
+        )
 
     attempt = 0
     while True:
@@ -133,47 +159,46 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
-# Application — CORS middleware must be registered first so it wraps every
-# other middleware and route handler, including the OPTIONS preflight path.
+# Application
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="The Elegant Exchange", lifespan=lifespan)
 
 _cors = _cors_origins()
-_wildcard = _cors == ["*"]
 logger.info("CORS allow_origins: %s", _cors)
 
-# Per the Fetch spec, a wildcard origin is incompatible with
-# allow_credentials=True — browsers will reject such responses.
-# When no explicit origins are configured we fall back to wildcard + no
-# credentials; once CORS_ORIGINS is set to real origins credentials work.
+
+class DbReadyMiddleware(BaseHTTPMiddleware):
+    """Return 503 while Mongo boots — never block OPTIONS (CORS preflight)."""
+
+    async def dispatch(self, request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        path = request.url.path.rstrip("/") or "/"
+        if path in ("/", "/health", "/api/health", "/api"):
+            return await call_next(request)
+        if not getattr(request.app.state, "db_ready", False):
+            return JSONResponse(
+                {
+                    "detail": "Database starting up — retry in a moment",
+                    "db": False,
+                },
+                status_code=503,
+            )
+        return await call_next(request)
+
+
+# Inner first, then CORS last so it is outermost (headers on every response).
+app.add_middleware(DbReadyMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors,
-    allow_credentials=not _wildcard,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
-
-@app.middleware("http")
-async def db_ready_gate(request, call_next):
-    """Avoid AttributeError while Mongo is still booting; keep health open."""
-    path = request.url.path.rstrip("/") or "/"
-    if path in ("/", "/health", "/api/health", "/api"):
-        return await call_next(request)
-    if not getattr(request.app.state, "db_ready", False):
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(
-            {"detail": "Database starting up — retry in a moment"},
-            status_code=503,
-        )
-    return await call_next(request)
-
-
-# Routers — included after middleware so the CORS layer is outermost
 for r in (
     auth_router,
     consignors_router,
@@ -195,9 +220,14 @@ for r in (
 @app.get("/api/health")
 async def health():
     """Liveness for Railway — always 200 once the process is listening."""
+    mongo_configured = bool(
+        (os.environ.get("MONGO_URL") or "").strip()
+        and (os.environ.get("DB_NAME") or "").strip()
+    )
     return {
         "ok": True,
         "db": bool(getattr(app.state, "db_ready", False)),
+        "mongo_configured": mongo_configured,
     }
 
 
