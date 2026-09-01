@@ -31,8 +31,8 @@ def _role_blurb(role: str) -> str:
         )
     if r == "manager":
         return (
-            "As Manager, you run day-to-day floor work plus payouts and analytics—"
-            "consignors, inventory, sales, and what’s owed."
+            "As Manager, you run day-to-day floor work plus analytics—"
+            "consignors, inventory, sales, and store performance."
         )
     return (
         "As Retail, you’ll work the floor: consignors, inventory intake & tags, "
@@ -79,7 +79,7 @@ Temporary password: {password}
 On first sign-in you’ll set your own password. Then a short in-app guide will walk you through the workspace.
 
 What this app is for
-{STORE_NAME}’s back-of-house tool for consignment: track consignors and pieces, print tags, log sales, and (for managers) handle payouts and performance.
+{STORE_NAME}’s back-of-house tool for consignment: track consignors and pieces, print tags, log sales, and (for admins) process payouts.
 
 {_role_blurb(role)}
 
@@ -127,7 +127,7 @@ What this app is for
 
               <div style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#888;margin:22px 0 8px;">How we use this app</div>
               <p style="margin:0 0 10px;color:#444;">
-                Track consignors and inventory, print tags, log sales, and keep store vs consignor splits accurate. Managers also handle payouts and analytics.
+                Track consignors and inventory, print tags, log sales, and keep store vs consignor splits accurate. Managers also get analytics; admins handle payouts.
               </p>
               <p style="margin:0;color:#444;">{blurb}</p>
             </td>

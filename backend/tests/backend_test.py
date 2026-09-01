@@ -427,6 +427,9 @@ class TestSquare:
         d = r.json()
         assert d.get("configured") is False
         assert d.get("connected") is False
+        assert "application_id" in d
+        assert "pos_callback_url" in d
+        assert str(d.get("pos_callback_url") or "").endswith("/sales")
 
     def test_square_sync_blocked(self, api, owner_h):
         r = api.post(f"{BASE_URL}/api/square/sync", headers=owner_h, json={})

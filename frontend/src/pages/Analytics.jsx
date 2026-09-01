@@ -126,49 +126,57 @@ export default function Analytics() {
   };
 
   return (
-    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5 md:space-y-6">
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-4 md:space-y-5 min-w-0 overflow-x-clip">
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, ease }}
-        className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4"
+        transition={{ duration: 0.4, ease }}
+        className="space-y-3 min-w-0"
       >
-        <div>
-          <h1 data-testid="analytics-title" className="ee-page-title text-2xl">
-            Analytics
-          </h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            {periodLabel}
-            {data ? ` · ${data.items_sold ?? 0} items sold` : ""}
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0">
-          <div className="ee-btn-group flex-1 min-w-0">
-            {RANGES.map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                data-testid={`range-${k}`}
-                onClick={() => setPeriod(k)}
-                className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-1.5 rounded-[6px] border transition-colors ${
-                  period === k
-                    ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-                    : "border-[var(--ee-sidebar-border)] text-neutral-600 hover:text-[var(--ee-magenta)]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        <div className="flex items-start justify-between gap-3 min-w-0">
+          <div className="min-w-0">
+            <h1 data-testid="analytics-title" className="ee-page-title text-2xl">
+              Analytics
+            </h1>
+            <p className="text-[13px] text-neutral-500 mt-0.5 break-words">
+              {periodLabel}
+              {data ? ` · ${data.items_sold ?? 0} items sold` : ""}
+            </p>
           </div>
-          <Button
-            data-testid="export-csv"
-            variant="outline"
-            className="ee-btn-label shrink-0 rounded-[8px] border-[var(--ee-sidebar-border)]"
-            onClick={exportCsv}
-          >
-            <Download size={14} className="md:mr-1" />
-            <span className="hidden md:inline">Export CSV</span>
-          </Button>
+          <div className="ee-page-actions shrink-0">
+            <Button
+              data-testid="export-csv"
+              type="button"
+              variant="ghost"
+              className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
+              onClick={exportCsv}
+              title="Export CSV"
+            >
+              <Download size={14} className="md:mr-1" />
+              <span className="hidden lg:inline">Export</span>
+            </Button>
+          </div>
+        </div>
+        <div
+          className="inline-flex flex-wrap rounded-[8px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)] p-0.5"
+          role="group"
+          aria-label="Analytics range"
+        >
+          {RANGES.map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              data-testid={`range-${k}`}
+              onClick={() => setPeriod(k)}
+              className={`text-[11px] font-semibold tracking-[0.06em] uppercase px-2.5 py-1.5 rounded-[6px] transition-colors ${
+                period === k
+                  ? "bg-[var(--ee-magenta)] text-white"
+                  : "text-neutral-600 hover:bg-black/[0.03]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </motion.div>
 

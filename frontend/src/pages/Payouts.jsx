@@ -19,9 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PAYOUT_METHODS } from "@/lib/brand";
 import { toast } from "sonner";
-import { Search, Wallet } from "lucide-react";
+import { Search, SlidersHorizontal, Wallet, X } from "lucide-react";
 
 const TONES = {
   overdue: {
@@ -63,8 +69,22 @@ const fadeUp = {
   }),
 };
 
+function daysPending(r) {
+  if (typeof r.days_pending === "number") return r.days_pending;
+  const oldest = r.oldest_sale;
+  if (!oldest) return null;
+  try {
+    const d = new Date(`${String(oldest).slice(0, 10)}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.floor((today - d) / 86400000);
+  } catch {
+    return null;
+  }
+}
+
 function toneFor(r) {
-  const days = r.days_since_last_payout;
+  const days = daysPending(r);
   if (days == null || days >= 14) return TONES.overdue;
   if (days <= 7) return TONES.fresh;
   return TONES.due;
@@ -108,8 +128,8 @@ export default function Payouts() {
   const filtered = useMemo(() => {
     const term = q.toLowerCase().trim();
     return queue.filter((r) => {
-      const days = r.days_since_last_payout;
-      if (overdueOnly && !(days == null || days >= 14)) return false;
+      const days = daysPending(r);
+      if (overdueOnly && !(days != null && days >= 14)) return false;
       if (!term) return true;
       return `${r.full_name} ${r.consignor_id} ${r.payout_method || ""}`
         .toLowerCase()
@@ -118,62 +138,85 @@ export default function Payouts() {
   }, [queue, q, overdueOnly]);
 
   return (
-    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5">
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-4 min-w-0 overflow-x-clip">
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, ease }}
+        transition={{ duration: 0.4, ease }}
+        className="space-y-3 min-w-0"
       >
-        <h1 data-testid="payouts-title" className="ee-page-title text-2xl">
-          Payouts
-        </h1>
-        <p className="text-sm text-neutral-500 mt-1">
-          {queue.length} in queue
-          {queue.length > 0 ? ` · ${fmtMoney(totalOwed)} ready to pay` : ""}
-        </p>
-      </motion.div>
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
-          />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search consignor…"
-            data-testid="payouts-search"
-            className="w-full h-9 pl-9 pr-3 rounded-[8px] border border-[var(--ee-sidebar-border)] bg-white/50 text-sm outline-none"
-          />
+        <div className="min-w-0">
+          <h1 data-testid="payouts-title" className="ee-page-title text-2xl">
+            Payouts
+          </h1>
+          <p className="text-[13px] text-neutral-500 mt-0.5 break-words">
+            {queue.length} in queue
+            {queue.length > 0 ? ` · ${fmtMoney(totalOwed)} ready to pay` : ""}
+            {overdueOnly ? ` · ${filtered.length} overdue` : ""}
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOverdueOnly((v) => !v)}
-          className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-semibold px-3 py-2 rounded-[8px] border ${
-            overdueOnly
-              ? "bg-[var(--ee-magenta)] text-white border-[var(--ee-magenta)]"
-              : "border-[var(--ee-sidebar-border)] text-neutral-600"
-          }`}
-        >
-          Overdue only
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-        {Object.values(TONES).map((t) => (
-          <div
-            key={t.label}
-            className="inline-flex items-center gap-1.5 text-[11px] text-neutral-600"
-          >
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: t.accent }}
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-w-0">
+          <div className="relative w-full min-w-0 flex-1">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
             />
-            {t.label}
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search consignor…"
+              data-testid="payouts-search"
+              className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
+            />
           </div>
-        ))}
-      </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="payouts-filter-btn"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
+              >
+                <SlidersHorizontal size={14} className="md:mr-1" />
+                <span className="hidden sm:inline">Filter</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                data-testid="filter-overdue"
+                onClick={() => setOverdueOnly(true)}
+              >
+                Overdue · 14d+
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="filter-all-payouts"
+                onClick={() => setOverdueOnly(false)}
+              >
+                All in queue
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {overdueOnly ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOverdueOnly(false)}
+              className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border border-[var(--ee-sidebar-border)] bg-black/[0.02] text-neutral-700 hover:border-[var(--ee-magenta)]"
+            >
+              Overdue · 14d+
+              <X size={12} className="text-neutral-400" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setOverdueOnly(false)}
+              className="text-[11px] text-neutral-500 hover:text-[var(--ee-magenta)] px-1"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+      </motion.div>
 
       <div
         className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"
@@ -181,7 +224,6 @@ export default function Payouts() {
       >
         {filtered.map((r, idx) => {
           const tone = toneFor(r);
-          const days = r.days_since_last_payout;
           return (
             <motion.article
               key={r.consignor_id}
@@ -243,8 +285,18 @@ export default function Payouts() {
                     {r.items_sold} item{r.items_sold === 1 ? "" : "s"}
                   </div>
                   <div>
-                    {days == null ? "Never paid" : `${days}d since payout`}
+                    {(() => {
+                      const d = daysPending(r);
+                      if (d == null) return "Pending sale";
+                      if (d >= 14) return `${d}d unpaid`;
+                      return `${d}d since sale`;
+                    })()}
                   </div>
+                  {(r.expired_items || 0) > 0 ? (
+                    <div className="text-amber-800 font-medium mt-0.5">
+                      {r.expired_items} expired
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -271,7 +323,10 @@ export default function Payouts() {
       <div className="pt-2">
         <h2 className="ee-section-header text-base mb-3">History</h2>
         <div className={`${panel} overflow-hidden`}>
-          <ul className="divide-y divide-[var(--ee-sidebar-border)]" data-testid="payout-history">
+          <ul
+            className="divide-y divide-[var(--ee-sidebar-border)] max-h-[28rem] overflow-y-auto ee-scroll-hide"
+            data-testid="payout-history"
+          >
             {history.map((p) => (
               <li
                 key={p.id}
@@ -324,6 +379,7 @@ function ProcessDialog({ active, onClose, onDone }) {
   const [method, setMethod] = useState("Cash");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [squareConnected, setSquareConnected] = useState(false);
 
   useEffect(() => {
     if (active) {
@@ -333,18 +389,38 @@ function ProcessDialog({ active, onClose, onDone }) {
     }
   }, [active]);
 
+  useEffect(() => {
+    api
+      .get("/square/status")
+      .then((r) => setSquareConnected(Boolean(r.data?.connected)))
+      .catch(() => setSquareConnected(false));
+  }, []);
+
   if (!active) return null;
 
-  const submit = async () => {
+  const methods = squareConnected
+    ? PAYOUT_METHODS
+    : PAYOUT_METHODS.filter((m) => m !== "Square");
+
+  const submit = async (override = {}) => {
     setBusy(true);
     try {
+      const payMethod = override.method || method;
+      const payAmount =
+        override.amount != null ? override.amount : Number(amount);
+      const payNotes =
+        override.notes != null
+          ? override.notes
+          : notes;
       await api.post("/payouts", {
         consignor_id: active.consignor_id,
-        amount: Number(amount),
-        method,
-        notes,
+        amount: payAmount,
+        method: payMethod,
+        notes: payNotes,
       });
-      toast.success(`Paid ${active.full_name}`);
+      toast.success(
+        override.success || `Paid ${active.full_name}`
+      );
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
@@ -370,7 +446,64 @@ function ProcessDialog({ active, onClose, onDone }) {
             <div className="text-3xl font-bold text-[var(--ee-magenta)]">
               {fmtMoney(active.balance_owed)}
             </div>
+            {(active.expired_items || 0) > 0 ? (
+              <div className="mt-2 text-[11px] text-amber-800 font-medium">
+                {active.expired_items} expired item
+                {active.expired_items === 1 ? "" : "s"} still on floor
+              </div>
+            ) : null}
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              data-testid="payout-mark-resolved"
+              className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+              onClick={() =>
+                submit({
+                  amount: Number(active.balance_owed),
+                  method: active.payout_method || "Cash",
+                  notes: notes || "Marked resolved — full balance",
+                  success: `Resolved ${active.full_name}`,
+                })
+              }
+            >
+              Mark resolved
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || !squareConnected}
+              data-testid="payout-via-square"
+              className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] disabled:opacity-40"
+              title={
+                squareConnected
+                  ? "Record full payout sent via Square"
+                  : "Connect Square in Settings first"
+              }
+              onClick={() =>
+                submit({
+                  amount: Number(active.balance_owed),
+                  method: "Square",
+                  notes: notes || "Processed via Square",
+                  success: `Square payout recorded for ${active.full_name}`,
+                })
+              }
+            >
+              Pay via Square
+            </Button>
+          </div>
+          {!squareConnected ? (
+            <p className="text-[11px] text-neutral-500 font-light">
+              Connect Square in Settings to enable Pay via Square.
+            </p>
+          ) : (
+            <p className="text-[11px] text-neutral-500 font-light">
+              Pay via Square records the payout after you send it in Square —
+              it does not move money from this screen.
+            </p>
+          )}
           <div>
             <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
               Amount
@@ -391,7 +524,7 @@ function ProcessDialog({ active, onClose, onDone }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PAYOUT_METHODS.map((m) => (
+                {methods.map((m) => (
                   <SelectItem key={m} value={m}>
                     {m}
                   </SelectItem>
@@ -417,7 +550,7 @@ function ProcessDialog({ active, onClose, onDone }) {
           <Button
             data-testid="payout-submit"
             disabled={busy}
-            onClick={submit}
+            onClick={() => submit()}
             className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
           >
             Confirm Payout

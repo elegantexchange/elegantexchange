@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
+import { api, fmtMoney, fmtDate, fmtPhone, formatApiError } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,7 +56,15 @@ export default function ConsignorDetail() {
         <ArrowLeft size={12} /> All consignors
       </button>
       <PageHeader
-        title={data.full_name}
+        title={
+          (data.import_flags || []).includes("missing_name") ||
+          !(data.full_name || "").trim() ||
+          /^\(name needed\b/i.test(data.full_name || "") ||
+          /^unassigned\b/i.test(data.full_name || "") ||
+          /^consignor\s+\d+/i.test(data.full_name || "")
+            ? "Needs name"
+            : data.full_name
+        }
         subtitle={`Consignor ${data.consignor_id}`}
         testid="consignor-detail-title"
         actions={
@@ -74,48 +82,50 @@ export default function ConsignorDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         <section className="bg-white border border-[var(--ee-border)] rounded-md p-5 lg:col-span-2">
           <h2 className="ee-section-header text-base mb-3">Contact</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 text-sm">
-            <div className="flex items-center gap-2 text-neutral-700">
-              <Phone size={13} className="text-neutral-400" />
-              {data.phone || "—"}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 text-sm min-w-0">
+            <div className="flex items-center gap-2 text-neutral-700 min-w-0">
+              <Phone size={13} className="text-neutral-400 shrink-0" />
+              <span className="truncate">
+                {data.phone ? fmtPhone(data.phone) : "—"}
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-neutral-700">
-              <Mail size={13} className="text-neutral-400" />
-              {data.email || "—"}
+            <div className="flex items-center gap-2 text-neutral-700 min-w-0">
+              <Mail size={13} className="text-neutral-400 shrink-0" />
+              <span className="truncate">{data.email || "—"}</span>
             </div>
-            <div className="flex items-center gap-2 text-neutral-700 sm:col-span-2">
-              <MapPin size={13} className="text-neutral-400" />
-              {data.address || "—"}
+            <div className="flex items-center gap-2 text-neutral-700 sm:col-span-2 min-w-0">
+              <MapPin size={13} className="text-neutral-400 shrink-0" />
+              <span className="break-words">{data.address || "—"}</span>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-y-2 text-sm border-t border-[var(--ee-border)] pt-4">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-sm border-t border-[var(--ee-border)] pt-4 min-w-0">
             {showFinance ? (
               <>
-                <div>
+                <div className="min-w-0">
                   <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
                     Payout Method
                   </div>
-                  <div>{data.payout_method}</div>
+                  <div className="break-words">{data.payout_method}</div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
                     Payout Details
                   </div>
-                  <div>{data.payout_details || "—"}</div>
+                  <div className="break-words">{data.payout_details || "—"}</div>
                 </div>
               </>
             ) : null}
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
                 Expired items
               </div>
-              <div>{data.expiry_action || "—"}</div>
+              <div className="break-words">{data.expiry_action || "—"}</div>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
                 Drop-off date
               </div>
-              <div>
+              <div className="break-words">
                 {data.date_of_drop_off
                   ? data.date_of_drop_off.length === 10
                     ? fmtDate(data.date_of_drop_off)

@@ -35,25 +35,7 @@ async def dashboard(
     # Total consignors
     total_consignors = await db.consignors.count_documents({})
 
-    # Alerts
-    expiring_soon = []
-    expired = []
-    seven_days = (today + timedelta(days=7)).isoformat()
-    async for item in db.inventory.find(
-        {"status": "Active", "period_end": {"$lte": seven_days, "$gte": today.isoformat()}},
-        {"_id": 0},
-    ).sort("period_end", 1).limit(20):
-        c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
-        item["consignor_name"] = c["full_name"] if c else ""
-        expiring_soon.append(item)
-    async for item in db.inventory.find(
-        {"status": "Expired"}, {"_id": 0}
-    ).sort("period_end", 1).limit(20):
-        c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
-        item["consignor_name"] = c["full_name"] if c else ""
-        expired.append(item)
-
-    # Unpaid balances > 14 days
+    # Unpaid balances whose oldest pending sale is 14+ days old
     cutoff = (today - timedelta(days=14)).isoformat()
     stale_pipeline = [
         {"$match": {"payout_status": "Pending", "sale_date": {"$lte": cutoff}}},
@@ -62,23 +44,51 @@ async def dashboard(
                 "_id": "$consignor_id",
                 "balance": {"$sum": "$consignor_cut"},
                 "oldest": {"$min": "$sale_date"},
+                "items": {"$sum": 1},
             }
         },
-        {"$sort": {"balance": -1}},
-        {"$limit": 20},
+        {"$sort": {"oldest": 1, "balance": -1}},
     ]
     stale_balances = []
     async for r in db.sales.aggregate(stale_pipeline):
         c = await db.consignors.find_one({"consignor_id": r["_id"]}, {"_id": 0})
-        if c:
-            stale_balances.append(
-                {
-                    "consignor_id": r["_id"],
-                    "full_name": c["full_name"],
-                    "balance": round(r["balance"], 2),
-                    "oldest": r["oldest"],
-                }
-            )
+        if not c:
+            continue
+        oldest = r.get("oldest")
+        days_pending = None
+        if oldest:
+            try:
+                days_pending = (today - date.fromisoformat(str(oldest)[:10])).days
+            except Exception:
+                days_pending = None
+        stale_balances.append(
+            {
+                "consignor_id": r["_id"],
+                "full_name": c["full_name"],
+                "balance": round(r["balance"], 2),
+                "oldest": oldest,
+                "days_pending": days_pending,
+                "items": int(r.get("items") or 0),
+            }
+        )
+
+    # Raise inventory alert caps; UI scrolls instead of truncating to 5
+    expiring_soon = []
+    expired = []
+    seven_days = (today + timedelta(days=7)).isoformat()
+    async for item in db.inventory.find(
+        {"status": "Active", "period_end": {"$lte": seven_days, "$gte": today.isoformat()}},
+        {"_id": 0},
+    ).sort("period_end", 1).limit(100):
+        c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
+        item["consignor_name"] = c["full_name"] if c else ""
+        expiring_soon.append(item)
+    async for item in db.inventory.find(
+        {"status": "Expired"}, {"_id": 0}
+    ).sort("period_end", 1).limit(100):
+        c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
+        item["consignor_name"] = c["full_name"] if c else ""
+        expired.append(item)
 
     # Sales trend
     days = 7 if period == "week" else (30 if period == "month" else 90)

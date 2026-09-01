@@ -21,4 +21,11 @@ export const CATEGORIES = [
 
 export const CONDITIONS = ["Excellent", "Like New", "Very Good", "Good", "Fair"];
 
-export const PAYOUT_METHODS = ["Cash", "Check", "Zelle", "Venmo", "Store Credit"];
+export const PAYOUT_METHODS = [
+  "Cash",
+  "Check",
+  "Zelle",
+  "Venmo",
+  "Store Credit",
+  "Square",
+];

@@ -30,6 +30,13 @@ sys.path.insert(0, str(ROOT / "backend"))
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
+try:
+    import certifi
+
+    _TLS = {"tlsCAFile": certifi.where()}
+except Exception:  # pragma: no cover
+    _TLS = {}
+
 load_dotenv(ROOT / "backend" / ".env")
 
 from categorize import capitalize_description, infer_category  # noqa: E402
@@ -68,7 +75,7 @@ def clean_item(doc: dict, skip_cids: set[str]) -> dict | None:
 async def load_local_catalog():
     url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
     name = os.environ.get("DB_NAME", "elegantexchange")
-    client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=8000)
+    client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=8000, **_TLS)
     db = client[name]
     consignors = await db.consignors.find({}, {"_id": 0}).to_list(10000)
     inventory = await db.inventory.find({}, {"_id": 0}).to_list(20000)
@@ -99,7 +106,7 @@ async def push_mongo(consignors, inventory):
         raise SystemExit(
             "Set TARGET_MONGO_URL to your Atlas mongodb+srv:// URI from Railway Variables"
         )
-    client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=20000)
+    client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=20000, **_TLS)
     db = client[name]
     await client.admin.command("ping")
     print(f"Connected to target db={name}")

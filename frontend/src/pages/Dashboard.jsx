@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { api, fmtMoney, fmtDate, fmtDateTime } from "@/lib/api";
+import { motion, AnimatePresence } from "framer-motion";
+import { api, fmtMoney, fmtDate, fmtDateTime, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Plus,
   Receipt,
   Users,
+  UserPlus,
   AlertTriangle,
   Clock,
   TrendingDown,
   TrendingUp,
+  Gift,
+  RotateCcw,
+  Check,
+  ExternalLink,
 } from "lucide-react";
 import {
   LineChart,
@@ -24,6 +30,14 @@ import {
 } from "recharts";
 import { useAuth } from "@/context/AuthContext";
 import { isAdmin } from "@/lib/auth";
+import {
+  ResponsiveModal,
+  ResponsiveModalContent,
+  ResponsiveModalFooter,
+  ResponsiveModalHeader,
+  ResponsiveModalTitle,
+} from "@/components/ResponsiveModal";
+import { toast } from "sonner";
 
 const ease = [0.22, 1, 0.36, 1];
 const panel =
@@ -53,7 +67,17 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [pendingDropOffs, setPendingDropOffs] = useState([]);
   const [period, setPeriod] = useState("week");
+  const [dropOffOpen, setDropOffOpen] = useState(false);
+  const [attentionKind, setAttentionKind] = useState(null);
   const nav = useNavigate();
+
+  const reloadAlerts = () => {
+    api.get(`/dashboard?period=${period}`).then((r) => setData(r.data));
+    api
+      .get("/drop-offs?status=needs_assessment")
+      .then((r) => setPendingDropOffs(r.data || []))
+      .catch(() => setPendingDropOffs([]));
+  };
 
   useEffect(() => {
     api.get(`/dashboard?period=${period}`).then((r) => setData(r.data));
@@ -182,9 +206,8 @@ export default function Dashboard() {
             >
               <Button
                 data-testid="quick-new-intake"
-                variant="outline"
-                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-                onClick={() => nav("/drop-off")}
+                className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                onClick={() => setDropOffOpen(true)}
               >
                 <Plus size={14} className="md:mr-1" />
                 <span className="hidden md:inline">New Drop Off</span>
@@ -205,22 +228,6 @@ export default function Dashboard() {
               >
                 <Receipt size={14} className="md:mr-1" />
                 <span className="hidden md:inline">Log Sale</span>
-              </Button>
-            </motion.div>
-            <motion.div
-              custom={2}
-              variants={fadeUp}
-              initial="hidden"
-              animate="show"
-              whileHover={{ y: -2 }}
-            >
-              <Button
-                data-testid="quick-add-consignor"
-                className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-                onClick={() => nav("/drop-off")}
-              >
-                <Users size={14} className="md:mr-1" />
-                <span className="hidden md:inline">Add Consignor</span>
               </Button>
             </motion.div>
           </div>
@@ -406,10 +413,18 @@ export default function Dashboard() {
         </div>
         <div className="ee-alerts-grid">
           <div className="min-w-0">
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="attention-open-assessment"
+              onClick={() => setAttentionKind("assessment")}
+              className="w-full text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5 hover:text-[var(--ee-magenta)] text-left"
+            >
               <Users size={12} className="shrink-0" /> Awaiting assessment
-            </div>
-            <ul className="mt-2.5 space-y-2 text-sm">
+              {pendingDropOffs.length > 0 ? (
+                <span className="ee-alerts-col-meta">{pendingDropOffs.length}</span>
+              ) : null}
+            </button>
+            <ul className="ee-alerts-list space-y-2 text-sm ee-scroll-hide">
               {pendingDropOffs.slice(0, 5).map((d) => (
                 <li key={d.id} className="min-w-0">
                   <button
@@ -430,72 +445,746 @@ export default function Dashboard() {
               {pendingDropOffs.length === 0 && (
                 <li className="text-xs text-neutral-400 font-light">All clear.</li>
               )}
+              {pendingDropOffs.length > 5 ? (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setAttentionKind("assessment")}
+                    className="text-[11px] text-[var(--ee-magenta)] font-semibold"
+                  >
+                    +{pendingDropOffs.length - 5} more
+                  </button>
+                </li>
+              ) : null}
             </ul>
           </div>
           <div className="min-w-0">
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="attention-open-expiring"
+              onClick={() => setAttentionKind("expiring")}
+              className="w-full text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5 hover:text-[var(--ee-magenta)] text-left"
+            >
               <Clock size={12} className="shrink-0" /> Expiring · 7 days
-            </div>
-            <ul className="mt-2.5 space-y-2 text-sm">
+              {(data?.alerts.expiring_soon || []).length > 0 ? (
+                <span className="ee-alerts-col-meta">
+                  {(data?.alerts.expiring_soon || []).length}
+                </span>
+              ) : null}
+            </button>
+            <ul className="ee-alerts-list space-y-2 text-sm ee-scroll-hide">
               {(data?.alerts.expiring_soon || []).slice(0, 5).map((i) => (
                 <li key={i.item_id} className="min-w-0">
-                  <div className="text-[13px] leading-snug">
-                    <span className="font-medium">{i.item_id}</span>
-                    <span className="text-neutral-600"> · {i.description}</span>
-                  </div>
-                  <div className="text-xs text-neutral-500 mt-0.5">{fmtDate(i.period_end)}</div>
+                  <button
+                    type="button"
+                    onClick={() => setAttentionKind("expiring")}
+                    className="w-full text-left hover:text-[var(--ee-magenta)]"
+                  >
+                    <div className="text-[13px] leading-snug">
+                      <span className="font-medium">{i.item_id}</span>
+                      <span className="text-neutral-600"> · {i.description}</span>
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-0.5">
+                      {fmtDate(i.period_end)}
+                    </div>
+                  </button>
                 </li>
               ))}
               {(!data?.alerts.expiring_soon || data.alerts.expiring_soon.length === 0) && (
                 <li className="text-xs text-neutral-400 font-light">All clear.</li>
               )}
+              {(data?.alerts.expiring_soon || []).length > 5 ? (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setAttentionKind("expiring")}
+                    className="text-[11px] text-[var(--ee-magenta)] font-semibold"
+                  >
+                    +{data.alerts.expiring_soon.length - 5} more
+                  </button>
+                </li>
+              ) : null}
             </ul>
           </div>
           <div className="min-w-0">
-            <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="attention-open-expired"
+              onClick={() => setAttentionKind("expired")}
+              className="w-full text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5 hover:text-[var(--ee-magenta)] text-left"
+            >
               <TrendingDown size={12} className="shrink-0" /> Expired · no resolution
-            </div>
-            <ul className="mt-2.5 space-y-2 text-sm">
+              {(data?.alerts.expired || []).length > 0 ? (
+                <span className="ee-alerts-col-meta">
+                  {(data?.alerts.expired || []).length}
+                </span>
+              ) : null}
+            </button>
+            <ul className="ee-alerts-list space-y-2 text-sm ee-scroll-hide">
               {(data?.alerts.expired || []).slice(0, 5).map((i) => (
                 <li key={i.item_id} className="min-w-0">
-                  <div className="text-[13px] leading-snug">
-                    <span className="font-medium">{i.item_id}</span>
-                    <span className="text-neutral-600"> · {i.description}</span>
-                  </div>
-                  <div className="text-xs text-neutral-500 mt-0.5">{fmtDate(i.period_end)}</div>
+                  <button
+                    type="button"
+                    onClick={() => setAttentionKind("expired")}
+                    className="w-full text-left hover:text-[var(--ee-magenta)]"
+                  >
+                    <div className="text-[13px] leading-snug">
+                      <span className="font-medium">{i.item_id}</span>
+                      <span className="text-neutral-600"> · {i.description}</span>
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-0.5">
+                      {fmtDate(i.period_end)}
+                    </div>
+                  </button>
                 </li>
               ))}
               {(!data?.alerts.expired || data.alerts.expired.length === 0) && (
                 <li className="text-xs text-neutral-400 font-light">All clear.</li>
               )}
+              {(data?.alerts.expired || []).length > 5 ? (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setAttentionKind("expired")}
+                    className="text-[11px] text-[var(--ee-magenta)] font-semibold"
+                  >
+                    +{data.alerts.expired.length - 5} more
+                  </button>
+                </li>
+              ) : null}
             </ul>
           </div>
           {showPayouts ? (
             <div className="min-w-0">
-              <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5">
+              <button
+                type="button"
+                data-testid="attention-open-unpaid"
+                onClick={() => setAttentionKind("unpaid")}
+                className="w-full text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold flex items-center gap-1.5 hover:text-[var(--ee-magenta)] text-left"
+              >
                 <Clock size={12} className="shrink-0" /> Unpaid · 14+ days
-              </div>
-              <ul className="mt-2.5 space-y-2 text-sm">
+                {(data?.alerts.stale_balances || []).length > 0 ? (
+                  <span className="ee-alerts-col-meta">
+                    {(data?.alerts.stale_balances || []).length}
+                  </span>
+                ) : null}
+              </button>
+              <ul className="ee-alerts-list space-y-2 text-sm ee-scroll-hide">
                 {(data?.alerts.stale_balances || []).slice(0, 5).map((b) => (
-                  <li
-                    key={b.consignor_id}
-                    className="flex items-baseline justify-between gap-3 min-w-0"
-                  >
-                    <span className="min-w-0 truncate">{b.full_name}</span>
-                    <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
-                      {fmtMoney(b.balance)}
-                    </span>
+                  <li key={b.consignor_id} className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setAttentionKind("unpaid")}
+                      className="w-full flex items-baseline justify-between gap-3 text-left hover:text-[var(--ee-magenta)]"
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium">{b.full_name}</span>
+                        {b.days_pending != null ? (
+                          <span className="block text-xs text-neutral-500 mt-0.5">
+                            {b.days_pending}d unpaid · {b.consignor_id}
+                          </span>
+                        ) : (
+                          <span className="block text-xs text-neutral-500 mt-0.5">
+                            {b.consignor_id}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[var(--ee-magenta)] text-xs shrink-0 font-semibold tabular-nums">
+                        {fmtMoney(b.balance)}
+                      </span>
+                    </button>
                   </li>
                 ))}
                 {(!data?.alerts.stale_balances || data.alerts.stale_balances.length === 0) && (
                   <li className="text-xs text-neutral-400 font-light">All clear.</li>
                 )}
+                {(data?.alerts.stale_balances || []).length > 5 ? (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => setAttentionKind("unpaid")}
+                      className="text-[11px] text-[var(--ee-magenta)] font-semibold"
+                    >
+                      +{data.alerts.stale_balances.length - 5} more
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </div>
           ) : null}
         </div>
       </motion.section>
 
+      <DropOffStartDialog
+        open={dropOffOpen}
+        onClose={() => setDropOffOpen(false)}
+      />
+      <AttentionResolveDialog
+        kind={attentionKind}
+        onClose={() => setAttentionKind(null)}
+        onResolved={reloadAlerts}
+        pendingDropOffs={pendingDropOffs}
+        expiring={data?.alerts?.expiring_soon || []}
+        expired={data?.alerts?.expired || []}
+        unpaid={data?.alerts?.stale_balances || []}
+      />
     </div>
+  );
+}
+
+function DropOffStartDialog({ open, onClose }) {
+  const nav = useNavigate();
+  const [list, setList] = useState([]);
+  const [search, setSearch] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSearch("");
+    setBusyId(null);
+    api
+      .get("/consignors")
+      .then((r) => setList(r.data || []))
+      .catch(() => setList([]));
+  }, [open]);
+
+  const query = search.toLowerCase().trim();
+  const listOpen = query.length > 0;
+  const filtered = useMemo(() => {
+    if (!query) return [];
+    return list
+      .filter((c) => {
+        const hay = `${c.full_name || ""} ${c.consignor_id || ""} ${c.phone || ""} ${c.email || ""}`.toLowerCase();
+        return hay.includes(query);
+      })
+      .slice(0, 30);
+  }, [list, query]);
+
+  const startExisting = async (c) => {
+    setBusyId(c.consignor_id);
+    try {
+      const { data } = await api.post("/drop-offs", {
+        consignor_id: c.consignor_id,
+      });
+      onClose();
+      nav(`/drop-off/${data.id}/assess`);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+      setBusyId(null);
+    }
+  };
+
+  const addNew = () => {
+    onClose();
+    nav("/drop-off");
+  };
+
+  return (
+    <ResponsiveModal open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent className="max-w-md" data-testid="drop-off-start-dialog">
+        <ResponsiveModalHeader>
+          <ResponsiveModalTitle className="ee-section-header text-xl">
+            New Drop Off
+          </ResponsiveModalTitle>
+        </ResponsiveModalHeader>
+
+        <div className="space-y-3">
+          <p className="text-[13px] text-neutral-500">
+            Find someone on file, or add a new consignor.
+          </p>
+
+          <div>
+            <Input
+              data-testid="drop-off-consignor-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, ID, phone…"
+              autoFocus
+            />
+            <AnimatePresence initial={false}>
+              {listOpen ? (
+                <motion.div
+                  key="drop-results"
+                  initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                  animate={{ height: "auto", opacity: 1, marginTop: 8 }}
+                  exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                  transition={{ duration: 0.28, ease }}
+                  className="overflow-hidden"
+                >
+                  <motion.div
+                    initial={{ y: -6 }}
+                    animate={{ y: 0 }}
+                    exit={{ y: -4 }}
+                    transition={{ duration: 0.28, ease }}
+                    className="max-h-44 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[8px] ee-scroll-hide bg-[var(--ee-panel)] shadow-[0_8px_24px_rgba(0,0,0,0.04)]"
+                  >
+                    {filtered.map((c, idx) => (
+                      <motion.button
+                        key={c.consignor_id}
+                        type="button"
+                        data-testid={`drop-off-pick-${c.consignor_id}`}
+                        disabled={Boolean(busyId)}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{
+                          delay: Math.min(idx, 8) * 0.02,
+                          duration: 0.2,
+                          ease,
+                        }}
+                        onClick={() => startExisting(c)}
+                        className="w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)] disabled:opacity-60"
+                      >
+                        <div className="font-semibold truncate">
+                          {c.full_name || "—"}
+                          {busyId === c.consignor_id ? "…" : ""}
+                        </div>
+                        <div className="text-[11px] text-neutral-500 truncate mt-0.5">
+                          {c.consignor_id}
+                          {c.phone ? ` · ${c.phone}` : ""}
+                        </div>
+                      </motion.button>
+                    ))}
+                    {filtered.length === 0 && (
+                      <div className="px-3 py-3 text-sm text-neutral-400 font-light">
+                        No consignors match.
+                      </div>
+                    )}
+                  </motion.div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          <button
+            type="button"
+            data-testid="drop-off-add-new"
+            onClick={addNew}
+            className="w-full flex items-center gap-2.5 rounded-[8px] border border-dashed border-[var(--ee-sidebar-border)] px-3 py-3 text-left hover:border-[var(--ee-magenta)] hover:bg-[var(--ee-magenta-soft)] transition-colors"
+          >
+            <span className="w-8 h-8 rounded-full bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)] flex items-center justify-center shrink-0">
+              <UserPlus size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-[var(--ee-ink)]">
+                Add new consignor
+              </span>
+              <span className="block text-[12px] text-neutral-500 mt-0.5">
+                Opens the drop-off intake on this device
+              </span>
+            </span>
+          </button>
+
+          <div className="flex justify-end pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              className="ee-btn-label text-neutral-600"
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
+  );
+}
+
+const ATTENTION_META = {
+  assessment: {
+    title: "Awaiting assessment",
+    blurb: "Open a drop-off to price it on the floor.",
+  },
+  expiring: {
+    title: "Expiring · 7 days",
+    blurb: "Select pieces, then mark donated or returned.",
+  },
+  expired: {
+    title: "Expired · no resolution",
+    blurb: "Select pieces, then mark donated or returned.",
+  },
+  unpaid: {
+    title: "Unpaid · 14+ days",
+    blurb: "Balances with oldest pending sale over two weeks.",
+  },
+};
+
+function AttentionResolveDialog({
+  kind,
+  onClose,
+  onResolved,
+  pendingDropOffs,
+  expiring,
+  expired,
+  unpaid,
+}) {
+  const nav = useNavigate();
+  const open = Boolean(kind);
+  const meta = ATTENTION_META[kind] || ATTENTION_META.assessment;
+  const canBulkResolve = kind === "expiring" || kind === "expired";
+
+  const [rows, setRows] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [busyKey, setBusyKey] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !kind) return;
+    let next = [];
+    if (kind === "assessment") next = pendingDropOffs || [];
+    else if (kind === "expiring") next = expiring || [];
+    else if (kind === "expired") next = expired || [];
+    else if (kind === "unpaid") next = unpaid || [];
+    setRows(next);
+    setSelected(new Set());
+    setBusyKey(null);
+    setBulkBusy(false);
+  }, [open, kind, pendingDropOffs, expiring, expired, unpaid]);
+
+  const allSelected =
+    canBulkResolve && rows.length > 0 && rows.every((r) => selected.has(r.item_id));
+  const selectedCount = selected.size;
+
+  const toggleOne = (itemId) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(rows.map((r) => r.item_id)));
+  };
+
+  const removeIds = (ids) => {
+    const idSet = new Set(ids);
+    setRows((prev) => prev.filter((r) => !idSet.has(r.item_id)));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    onResolved?.();
+  };
+
+  const removeRow = (key) => {
+    setRows((prev) => prev.filter((r) => rowKey(kind, r) !== key));
+    onResolved?.();
+  };
+
+  const assess = (row) => {
+    onClose();
+    nav(`/drop-off/${row.id}/assess`);
+  };
+
+  const bulkSelected = async (action) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setBulkBusy(true);
+    try {
+      await api.post("/inventory/bulk", { item_ids: ids, action });
+      toast.success(
+        action === "donated"
+          ? `Donated ${ids.length} item${ids.length === 1 ? "" : "s"}`
+          : `Returned ${ids.length} item${ids.length === 1 ? "" : "s"}`
+      );
+      removeIds(ids);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const resolvePayout = async (row) => {
+    const key = rowKey(kind, row);
+    setBusyKey(key);
+    try {
+      await api.post("/payouts", {
+        consignor_id: row.consignor_id,
+        amount: Number(row.balance),
+        method: "Cash",
+        notes: "Marked resolved — full balance",
+      });
+      toast.success(`Resolved ${row.full_name}`);
+      removeRow(key);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const openPayouts = () => {
+    onClose();
+    nav("/payouts");
+  };
+
+  return (
+    <ResponsiveModal open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveModalContent
+        className="max-w-lg"
+        data-testid="attention-resolve-dialog"
+      >
+        <ResponsiveModalHeader>
+          <ResponsiveModalTitle className="ee-section-header text-xl">
+            {meta.title}
+            <span className="ml-2 text-[10px] tracking-[0.18em] uppercase text-[var(--ee-magenta)] font-semibold align-middle">
+              {rows.length}
+            </span>
+          </ResponsiveModalTitle>
+        </ResponsiveModalHeader>
+
+        <div className="space-y-3">
+          <p className="text-[13px] text-neutral-500">{meta.blurb}</p>
+
+          {canBulkResolve && rows.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  data-testid="attention-select-all"
+                  onClick={toggleAll}
+                  className="inline-flex items-center gap-2 text-[12px] font-semibold text-neutral-600 hover:text-[var(--ee-magenta)]"
+                >
+                  <span
+                    className={`w-4 h-4 rounded-[4px] border flex items-center justify-center shrink-0 ${
+                      allSelected
+                        ? "bg-[var(--ee-magenta)] border-[var(--ee-magenta)] text-white"
+                        : selectedCount > 0
+                          ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)]"
+                          : "border-[var(--ee-sidebar-border)]"
+                    }`}
+                    aria-hidden
+                  >
+                    {allSelected ? <Check size={11} strokeWidth={3} /> : null}
+                    {!allSelected && selectedCount > 0 ? (
+                      <span className="w-1.5 h-1.5 rounded-sm bg-[var(--ee-magenta)]" />
+                    ) : null}
+                  </span>
+                  {allSelected ? "Clear" : "Select all"}
+                </button>
+                <span className="text-[11px] text-neutral-500 tabular-nums">
+                  {selectedCount} selected
+                </span>
+              </div>
+              <div
+                className="flex gap-2"
+                data-testid="attention-bulk-bar"
+              >
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={bulkBusy || selectedCount === 0}
+                  data-testid="attention-bulk-donated"
+                  onClick={() => bulkSelected("donated")}
+                  className="ee-btn-label h-9 flex-1 rounded-[7px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white disabled:opacity-40"
+                >
+                  <Gift size={13} className="mr-1" />
+                  Donated
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkBusy || selectedCount === 0}
+                  data-testid="attention-bulk-returned"
+                  onClick={() => bulkSelected("returned")}
+                  className="ee-btn-label h-9 flex-1 rounded-[7px] border-[var(--ee-sidebar-border)] disabled:opacity-40"
+                >
+                  <RotateCcw size={13} className="mr-1" />
+                  Returned
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {rows.length === 0 ? (
+            <p className="text-sm text-neutral-400 font-light py-6 text-center">
+              All clear.
+            </p>
+          ) : (
+            <AttentionCards
+              kind={kind}
+              rows={rows}
+              busyKey={busyKey}
+              selectable={canBulkResolve}
+              selected={selected}
+              onToggle={toggleOne}
+              onAssess={assess}
+              onResolve={resolvePayout}
+              onOpenPayouts={openPayouts}
+            />
+          )}
+        </div>
+
+        <ResponsiveModalFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            className="ee-btn-label text-neutral-600"
+            onClick={onClose}
+          >
+            Close
+          </Button>
+        </ResponsiveModalFooter>
+      </ResponsiveModalContent>
+    </ResponsiveModal>
+  );
+}
+
+function rowKey(kind, row) {
+  if (!row) return null;
+  if (kind === "assessment") return `d:${row.id}`;
+  if (kind === "unpaid") return `c:${row.consignor_id}`;
+  return `i:${row.item_id}`;
+}
+
+function rowTitle(kind, row) {
+  if (kind === "assessment") return row.consignor_name || row.consignor_id;
+  if (kind === "unpaid") return row.full_name;
+  return row.item_id;
+}
+
+function rowSub(kind, row) {
+  if (kind === "assessment") {
+    return `${row.consignor_id}${
+      row.signed_at ? ` · signed ${fmtDateTime(row.signed_at)}` : ""
+    }`;
+  }
+  if (kind === "unpaid") {
+    return row.days_pending != null
+      ? `${row.days_pending}d unpaid · ${row.consignor_id}`
+      : row.consignor_id;
+  }
+  return `${row.description || "—"}${
+    row.period_end ? ` · ${fmtDate(row.period_end)}` : ""
+  }`;
+}
+
+function AttentionCards({
+  kind,
+  rows,
+  busyKey,
+  selectable,
+  selected,
+  onToggle,
+  onAssess,
+  onResolve,
+  onOpenPayouts,
+}) {
+  return (
+    <ul
+      className="max-h-[min(52vh,440px)] overflow-y-auto ee-scroll-hide space-y-2"
+      data-testid="attention-layout-cards"
+    >
+      {rows.map((row, idx) => {
+        const key = rowKey(kind, row);
+        const isOn = selectable && selected.has(row.item_id);
+        const busy = busyKey === key;
+
+        return (
+          <motion.li
+            key={key}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: Math.min(idx, 10) * 0.03, duration: 0.28, ease }}
+            className={`rounded-[9px] border bg-[var(--ee-panel)] p-3.5 transition-colors ${
+              isOn
+                ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)]"
+                : "border-[var(--ee-sidebar-border)]"
+            }`}
+          >
+            {selectable ? (
+              <button
+                type="button"
+                data-testid={`attention-select-${row.item_id}`}
+                onClick={() => onToggle(row.item_id)}
+                className="w-full flex items-start gap-3 text-left"
+                aria-pressed={isOn}
+              >
+                <span
+                  className={`mt-0.5 w-4 h-4 rounded-[4px] border flex items-center justify-center shrink-0 ${
+                    isOn
+                      ? "bg-[var(--ee-magenta)] border-[var(--ee-magenta)] text-white"
+                      : "border-[var(--ee-sidebar-border)]"
+                  }`}
+                  aria-hidden
+                >
+                  {isOn ? <Check size={11} strokeWidth={3} /> : null}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold truncate">
+                    {rowTitle(kind, row)}
+                  </span>
+                  <span className="block text-[12px] text-neutral-500 mt-0.5">
+                    {rowSub(kind, row)}
+                  </span>
+                </span>
+              </button>
+            ) : (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold truncate">
+                    {rowTitle(kind, row)}
+                  </div>
+                  <div className="text-[12px] text-neutral-500 mt-0.5">
+                    {rowSub(kind, row)}
+                  </div>
+                  {kind === "assessment" ? (
+                    <div className="mt-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy}
+                        data-testid={`attention-assess-${row.id}`}
+                        onClick={() => onAssess(row)}
+                        className="ee-btn-label h-8 rounded-[7px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                      >
+                        Assess now
+                      </Button>
+                    </div>
+                  ) : null}
+                  {kind === "unpaid" ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy}
+                        data-testid={`attention-resolve-${row.consignor_id}`}
+                        onClick={() => onResolve(row)}
+                        className="ee-btn-label h-8 rounded-[7px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                      >
+                        <Check size={13} className="mr-1" />
+                        Mark resolved
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={onOpenPayouts}
+                        className="ee-btn-label h-8 rounded-[7px] border-[var(--ee-sidebar-border)]"
+                      >
+                        <ExternalLink size={13} className="mr-1" />
+                        Payouts
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+                {kind === "unpaid" ? (
+                  <span className="text-[var(--ee-magenta)] font-bold tabular-nums shrink-0">
+                    {fmtMoney(row.balance)}
+                  </span>
+                ) : null}
+              </div>
+            )}
+          </motion.li>
+        );
+      })}
+    </ul>
   );
 }

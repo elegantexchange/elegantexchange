@@ -72,7 +72,7 @@ export function clearPendingGuide() {
 }
 
 export const ROLE_LABELS = {
-  admin: "Admin",
+  admin: "Owner",
   manager: "Manager",
   retail: "Retail",
 };
@@ -92,9 +92,9 @@ export const isLocalHost =
 export const ROLE_PREVIEW_PERSONAS = [
   {
     id: "admin",
-    name: "Johan",
+    name: "Youseline",
     role: "admin",
-    email: "johan@elegantexchange.co",
+    email: "shop@elegantexchange.co",
   },
   {
     id: "manager",
@@ -113,7 +113,7 @@ export const ROLE_PREVIEW_PERSONAS = [
 export const MOCK_OWNER = {
   id: "ui-only",
   email: "shop@elegantexchange.co",
-  name: "Youseline S.",
+  name: "Youseline",
   role: "admin",
   phone: "",
   must_change_password: false,

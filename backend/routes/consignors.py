@@ -1,7 +1,7 @@
 """Consignor routes."""
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import csv
 import io
 import re
@@ -14,12 +14,39 @@ from models import (
     ConsignorImportRowIssue,
     ConsignorUpdate,
 )
-from auth import get_current_user, require_roles
+from auth import get_current_user, normalize_role, require_roles
 from id_gen import next_consignor_id
 
 router = APIRouter(prefix="/api/consignors", tags=["consignors"])
 
-PAYOUT_METHODS = {"Cash", "Check", "Zelle", "Venmo", "Store Credit"}
+_RETAIL_HIDDEN_FIELDS = (
+    "total_owed",
+    "payout_method",
+    "payout_details",
+    "consignor_split_pct",
+    "payout_due",
+)
+_RETAIL_HIDDEN_SALE = (
+    "store_cut",
+    "consignor_cut",
+    "consignor_split_pct",
+    "payout_status",
+    "payout_date",
+    "payout_method",
+)
+
+
+def _redact_consignor_for_retail(c: dict) -> dict:
+    for key in _RETAIL_HIDDEN_FIELDS:
+        c.pop(key, None)
+    for sale in c.get("sales") or []:
+        for key in _RETAIL_HIDDEN_SALE:
+            sale.pop(key, None)
+    if "payouts" in c:
+        c["payouts"] = []
+    return c
+
+PAYOUT_METHODS = {"Cash", "Check", "Zelle", "Venmo", "Store Credit", "Square"}
 _HEADER_ALIASES = {
     "consignor_id": {
         "id",
@@ -88,10 +115,71 @@ async def _balance_for(db, consignor_id: str) -> float:
     return round(total, 2)
 
 
+async def _floor_counts_map(db) -> dict[str, int]:
+    """Clothes still on the floor per consignor (Active + Expired)."""
+    pipeline = [
+        {"$match": {"status": {"$in": ["Active", "Expired"]}}},
+        {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
+    ]
+    out: dict[str, int] = {}
+    async for row in db.inventory.aggregate(pipeline):
+        if row.get("_id"):
+            out[row["_id"]] = int(row.get("n") or 0)
+    return out
+
+
 async def _active_count(db, consignor_id: str) -> int:
+    """Items still on the floor (Active + Expired until donated/returned/sold)."""
     return await db.inventory.count_documents(
-        {"consignor_id": consignor_id, "status": "Active"}
+        {
+            "consignor_id": consignor_id,
+            "status": {"$in": ["Active", "Expired"]},
+        }
     )
+
+
+async def _balances_map(db) -> dict[str, float]:
+    pipeline = [
+        {"$match": {"payout_status": "Pending"}},
+        {"$group": {"_id": "$consignor_id", "balance": {"$sum": "$consignor_cut"}}},
+    ]
+    out: dict[str, float] = {}
+    async for row in db.sales.aggregate(pipeline):
+        if row.get("_id"):
+            out[row["_id"]] = round(float(row.get("balance") or 0), 2)
+    return out
+
+
+async def _refresh_expired(db) -> None:
+    today = date.today().isoformat()
+    await db.inventory.update_many(
+        {"status": "Active", "period_end": {"$lte": today}},
+        {"$set": {"status": "Expired"}},
+    )
+
+
+async def _expired_counts_map(db) -> dict[str, int]:
+    pipeline = [
+        {"$match": {"status": "Expired"}},
+        {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
+    ]
+    out: dict[str, int] = {}
+    async for row in db.inventory.aggregate(pipeline):
+        if row.get("_id"):
+            out[row["_id"]] = int(row.get("n") or 0)
+    return out
+
+
+def _apply_expired_review(c: dict, expired_n: int) -> None:
+    """Expired floor items → needs review + payout due."""
+    c["expired_items"] = int(expired_n or 0)
+    flags = list(c.get("import_flags") or [])
+    if c["expired_items"] > 0 and "expired_items" not in flags:
+        flags.append("expired_items")
+    c["import_flags"] = flags
+    c["needs_review"] = bool(c.get("needs_review")) or bool(flags)
+    owed = float(c.get("total_owed") or 0)
+    c["payout_due"] = owed > 0 or c["expired_items"] > 0
 
 
 def _norm_header(raw: str) -> str:
@@ -231,14 +319,32 @@ async def _insert_consignor(db, body: ConsignorCreate) -> dict:
 @router.get("")
 async def list_consignors(request: Request, _u: dict = Depends(get_current_user)):
     db = request.app.state.db
+    retail = normalize_role(_u.get("role")) == "retail"
+    await _refresh_expired(db)
+    expired_map = await _expired_counts_map(db)
+    floor_map = await _floor_counts_map(db)
+    balance_map = await _balances_map(db)
     consignors = await db.consignors.find({}, {"_id": 0}).to_list(5000)
     for c in consignors:
-        c["active_items"] = await _active_count(db, c["consignor_id"])
-        c["total_owed"] = await _balance_for(db, c["consignor_id"])
+        cid = c["consignor_id"]
+        floor_n = int(floor_map.get(cid, 0))
+        c["active_items"] = floor_n
+        c["floor_items"] = floor_n
+        c["total_owed"] = float(balance_map.get(cid, 0.0))
         c.setdefault("import_flags", [])
         c.setdefault("needs_review", bool(c.get("import_flags")))
         c.setdefault("expiry_action", "")
         c.setdefault("date_of_drop_off", "")
+        _apply_expired_review(c, expired_map.get(cid, 0))
+        if retail:
+            _redact_consignor_for_retail(c)
+    consignors.sort(
+        key=lambda c: (
+            ((c.get("full_name") or "").strip().split() or [""])[0].lower(),
+            (c.get("full_name") or "").strip().lower(),
+            c.get("consignor_id") or "",
+        )
+    )
     return consignors
 
 
@@ -452,15 +558,21 @@ async def get_consignor(
     consignor_id: str, request: Request, _u: dict = Depends(get_current_user)
 ):
     db = request.app.state.db
+    await _refresh_expired(db)
     c = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Not found")
     c["active_items"] = await _active_count(db, consignor_id)
+    c["floor_items"] = c["active_items"]
     c["total_owed"] = await _balance_for(db, consignor_id)
     c.setdefault("import_flags", [])
     c.setdefault("needs_review", bool(c.get("import_flags")))
     c.setdefault("expiry_action", "")
     c.setdefault("date_of_drop_off", "")
+    expired_n = await db.inventory.count_documents(
+        {"consignor_id": consignor_id, "status": "Expired"}
+    )
+    _apply_expired_review(c, expired_n)
     c["items"] = await db.inventory.find(
         {"consignor_id": consignor_id}, {"_id": 0}
     ).sort("date_in", -1).to_list(2000)
@@ -470,6 +582,8 @@ async def get_consignor(
     c["payouts"] = await db.payouts.find(
         {"consignor_id": consignor_id}, {"_id": 0}
     ).sort("date_paid", -1).to_list(1000)
+    if normalize_role(_u.get("role")) == "retail":
+        _redact_consignor_for_retail(c)
     return c
 
 

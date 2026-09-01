@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Flag, Pencil, Printer, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { Camera, Flag, LayoutGrid, List, Pencil, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -42,7 +42,18 @@ import { isManagerOrAdmin, roleOf } from "@/lib/auth";
 
 const ITEM_STATUSES = ["Active", "Sold", "Expired", "Donated", "Returned"];
 
-const STATUS_FILTERS = ["All", "Active", "Expiring Soon", "Expired", "Sold", "Donated", "Returned"];
+const STATUS_FILTERS = [
+  "All",
+  "Active",
+  "Expiring Soon",
+  "Expired",
+  "Sold",
+  "Donated",
+  "Returned",
+];
+const STATUS_FILTER_LABELS = {
+  Active: "On floor",
+};
 
 const FLAG_LABELS = {
   missing_description: "Missing description",
@@ -94,6 +105,38 @@ const ease = [0.22, 1, 0.36, 1];
 const panel =
   "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
 
+const VIEW_KEY = "ee_inventory_view_v2";
+const VIEWS = [
+  { id: "list", label: "List", icon: List },
+  { id: "cards", label: "Cards", icon: LayoutGrid },
+  { id: "ledger", label: "Ledger", icon: Rows3 },
+];
+
+function readView() {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (VIEWS.some((x) => x.id === v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "list";
+}
+
+function TonePill({ tone }) {
+  return (
+    <span
+      className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border shrink-0"
+      style={{
+        color: tone.ink,
+        background: tone.soft,
+        borderColor: tone.border,
+      }}
+    >
+      {tone.label}
+    </span>
+  );
+}
+
 function flagLabel(flag) {
   return FLAG_LABELS[flag] || flag;
 }
@@ -113,8 +156,8 @@ function attentionReasons(i, today) {
   if (i.status === "Expired") {
     reasons.push(
       i.period_end
-        ? `Consignment period ended on ${fmtDate(i.period_end)}. Renew, donate, or return this item.`
-        : "Consignment period has ended. Renew, donate, or return this item."
+        ? `Consignment period ended on ${fmtDate(i.period_end)}. Still on the floor — renew, donate, or return.`
+        : "Consignment period has ended. Still on the floor — renew, donate, or return."
     );
     return reasons;
   }
@@ -197,6 +240,7 @@ export default function Inventory() {
   const [editDraft, setEditDraft] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [view, setView] = useState(readView);
   const fileRef = useRef(null);
   const nav = useNavigate();
 
@@ -205,6 +249,14 @@ export default function Inventory() {
     load();
     api.get("/consignors").then((r) => setConsignors(r.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      /* ignore */
+    }
+  }, [view]);
 
   const today = new Date().toISOString().slice(0, 10);
   const sevenAhead = (() => {
@@ -219,7 +271,8 @@ export default function Inventory() {
   );
 
   const activeCount = useMemo(
-    () => items.filter((i) => i.status === "Active").length,
+    () =>
+      items.filter((i) => i.status === "Active" || i.status === "Expired").length,
     [items]
   );
 
@@ -245,7 +298,15 @@ export default function Inventory() {
       if (rackFilter !== "All" && (i.rack || "") !== rackFilter) return false;
       if (statusFilter === "All") return true;
       if (statusFilter === "Expiring Soon") {
-        return i.status === "Active" && i.period_end <= sevenAhead && i.period_end >= today;
+        return (
+          i.status === "Active" &&
+          i.period_end <= sevenAhead &&
+          i.period_end >= today
+        );
+      }
+      // Expired pieces stay on the floor until donated / returned / sold
+      if (statusFilter === "Active") {
+        return i.status === "Active" || i.status === "Expired";
       }
       return i.status === statusFilter;
     });
@@ -458,7 +519,7 @@ export default function Inventory() {
   const activeChips = [
     statusFilter !== "All" && {
       key: "status",
-      label: statusFilter,
+      label: STATUS_FILTER_LABELS[statusFilter] || statusFilter,
       testid: "chip-status",
       clear: () => setStatusFilter("All"),
     },
@@ -490,173 +551,192 @@ export default function Inventory() {
   };
 
   return (
-    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5">
+    <div className="px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-4 min-w-0 overflow-x-clip">
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, ease }}
-        className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4"
+        transition={{ duration: 0.4, ease }}
+        className="space-y-3 min-w-0"
       >
-        <div>
-          <h1 data-testid="inventory-title" className="ee-page-title text-2xl">
-            Inventory
-          </h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            {items.length} item{items.length === 1 ? "" : "s"} · {activeCount} on floor
-            {flaggedCount ? ` · ${flaggedCount} need review` : ""}
-            {` · ${filtered.length} shown`}
-          </p>
-        </div>
-        <div className="ee-page-actions">
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="inventory-scan-item-btn"
-            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-            onClick={() => setScanOpen(true)}
-          >
-            <Camera size={14} className="md:mr-1" />
-            <span className="hidden md:inline">Scan item</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="import-inventory-btn"
-            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-            disabled={importing}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Upload size={14} className="md:mr-1" />
-            <span className="hidden md:inline">
-              {importing ? "Importing…" : "Import CSV"}
-            </span>
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            data-testid="import-inventory-file"
-            onChange={onImportFile}
-          />
-        </div>
-      </motion.div>
-
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
-          />
-          <Input
-            data-testid="inventory-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search item, consignor, rack, color…"
-            className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
-          />
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <div className="flex items-start justify-between gap-3 min-w-0">
+          <div className="min-w-0">
+            <h1 data-testid="inventory-title" className="ee-page-title text-2xl">
+              Inventory
+            </h1>
+            <p className="text-[13px] text-neutral-500 mt-0.5 break-words">
+              {items.length} item{items.length === 1 ? "" : "s"} · {activeCount} on floor
+              {flaggedCount ? ` · ${flaggedCount} need review` : ""}
+              {` · ${filtered.length} shown`}
+            </p>
+          </div>
+          <div className="ee-page-actions shrink-0">
             <Button
               type="button"
-              variant="outline"
-              data-testid="add-filter-btn"
-              className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
+              variant="ghost"
+              data-testid="inventory-scan-item-btn"
+              className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
+              onClick={() => setScanOpen(true)}
+              title="Scan item"
             >
-              <SlidersHorizontal size={14} className="md:mr-1" />
-              <span className="hidden sm:inline">Add filter</span>
+              <Camera size={14} className="md:mr-1" />
+              <span className="hidden lg:inline">Scan</span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-testid="filter-status-menu">
-                Status
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                {STATUS_FILTERS.filter((f) => f !== "All").map((f) => (
-                  <DropdownMenuItem
-                    key={f}
-                    data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
-                    onClick={() => setStatusFilter(f)}
-                  >
-                    {f}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-testid="filter-rack">Rack</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                {racks.length === 0 ? (
-                  <DropdownMenuItem disabled>No racks yet</DropdownMenuItem>
-                ) : (
-                  racks.map((r) => (
-                    <DropdownMenuItem key={r} onClick={() => setRackFilter(r)}>
-                      {r}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-testid="filter-category">
-                Category
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
-                {CATEGORIES.map((c) => (
-                  <DropdownMenuItem key={c} onClick={() => setCategoryFilter(c)}>
-                    {c}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-testid="filter-flagged-inventory-btn"
-              onClick={() => setFlaggedOnly(true)}
-            >
-              <Flag size={14} className="mr-2" />
-              Needs review
-              {flaggedCount > 0 ? ` (${flaggedCount})` : ""}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {activeChips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5" data-testid="active-filter-chips">
-          {activeChips.map((chip) => (
-            <button
-              key={chip.key}
+            <Button
               type="button"
-              data-testid={chip.testid}
-              onClick={chip.clear}
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border border-[var(--ee-sidebar-border)] bg-black/[0.02] text-neutral-700 hover:border-[var(--ee-magenta)] transition-colors"
+              variant="ghost"
+              data-testid="import-inventory-btn"
+              className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              title="Import CSV"
             >
-              {chip.label}
-              <X size={12} className="text-neutral-400" />
-            </button>
-          ))}
-          <button
-            type="button"
-            data-testid="clear-all-filters"
-            onClick={clearAllFilters}
-            className="text-[11px] text-neutral-500 hover:text-[var(--ee-magenta)] px-1"
-          >
-            Clear all
-          </button>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-neutral-600">
-        {Object.values(TONES).map((t) => (
-          <div key={t.label} className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.accent }} />
-            {t.label}
+              <Upload size={14} className="md:mr-1" />
+              <span className="hidden lg:inline">
+                {importing ? "Importing…" : "Import"}
+              </span>
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              data-testid="import-inventory-file"
+              onChange={onImportFile}
+            />
           </div>
-        ))}
-      </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-w-0">
+          <div className="relative w-full min-w-0 flex-1">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+            />
+            <Input
+              data-testid="inventory-search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search item, consignor, rack, color…"
+              className="w-full pl-9 rounded-[8px] border-[var(--ee-sidebar-border)]"
+            />
+          </div>
+          <div
+            className="inline-flex shrink-0 rounded-[8px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)] p-0.5"
+            role="group"
+            aria-label="Inventory view"
+          >
+            {VIEWS.map(({ id, label, icon: Icon }) => {
+              const on = view === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  data-testid={`inventory-view-${id}`}
+                  onClick={() => setView(id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] text-[11px] font-semibold tracking-[0.06em] uppercase transition-colors ${
+                    on
+                      ? "bg-[var(--ee-magenta)] text-white"
+                      : "text-neutral-600 hover:bg-black/[0.03]"
+                  }`}
+                  title={label}
+                >
+                  <Icon size={14} strokeWidth={1.75} />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="add-filter-btn"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] shrink-0"
+              >
+                <SlidersHorizontal size={14} className="md:mr-1" />
+                <span className="hidden sm:inline">Filter</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="filter-status-menu">
+                  Status
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                  {STATUS_FILTERS.filter((f) => f !== "All").map((f) => (
+                    <DropdownMenuItem
+                      key={f}
+                      data-testid={`filter-${f.toLowerCase().replace(/\s+/g, "-")}`}
+                      onClick={() => setStatusFilter(f)}
+                    >
+                      {STATUS_FILTER_LABELS[f] || f}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="filter-rack">Rack</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                  {racks.length === 0 ? (
+                    <DropdownMenuItem disabled>No racks yet</DropdownMenuItem>
+                  ) : (
+                    racks.map((r) => (
+                      <DropdownMenuItem key={r} onClick={() => setRackFilter(r)}>
+                        {r}
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="filter-category">
+                  Category
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-64 overflow-y-auto ee-scroll-hide">
+                  {CATEGORIES.map((c) => (
+                    <DropdownMenuItem key={c} onClick={() => setCategoryFilter(c)}>
+                      {c}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="filter-flagged-inventory-btn"
+                onClick={() => setFlaggedOnly(true)}
+              >
+                <Flag size={14} className="mr-2" />
+                Needs review
+                {flaggedCount > 0 ? ` (${flaggedCount})` : ""}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {activeChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="active-filter-chips">
+            {activeChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                data-testid={chip.testid}
+                onClick={chip.clear}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border border-[var(--ee-sidebar-border)] bg-black/[0.02] text-neutral-700 hover:border-[var(--ee-magenta)] transition-colors"
+              >
+                {chip.label}
+                <X size={12} className="text-neutral-400" />
+              </button>
+            ))}
+            <button
+              type="button"
+              data-testid="clear-all-filters"
+              onClick={clearAllFilters}
+              className="text-[11px] text-neutral-500 hover:text-[var(--ee-magenta)] px-1"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </motion.div>
 
       {selected.size > 0 && (
         <div
@@ -706,11 +786,13 @@ export default function Inventory() {
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Dense list */}
-        <div
-          className={`${panel} overflow-hidden lg:w-[400px] xl:w-[440px] shrink-0 max-h-[70vh] flex flex-col`}
-        >
+      <div
+        className={
+          view === "list" ? "ee-split-row" : "flex flex-col gap-4 min-w-0"
+        }
+      >
+        {view === "list" && (
+        <div className={`${panel} ee-split-list`}>
           <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--ee-sidebar-border)] shrink-0">
             <Checkbox
               checked={allChecked}
@@ -791,11 +873,8 @@ export default function Inventory() {
                         >
                           {fmtMoney(i.asking_price)}
                         </div>
-                        <div
-                          className="text-[9px] uppercase tracking-[0.1em] font-semibold mt-0.5"
-                          style={{ color: tone.ink }}
-                        >
-                          {tone.label}
+                        <div className="mt-0.5">
+                          <TonePill tone={tone} />
                         </div>
                       </div>
                     </div>
@@ -810,6 +889,186 @@ export default function Inventory() {
             </ul>
           </div>
         </div>
+        )}
+
+        {view === "cards" && (
+          <div
+            data-testid="inventory-tbody"
+            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 min-w-0"
+          >
+            {filtered.map((i) => {
+              const tone = toneFor(i, today);
+              const flags = i.import_flags || [];
+              const on = focusId === i.item_id;
+              return (
+                <div
+                  key={i.item_id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={`inv-row-${i.item_id}`}
+                  onClick={() => setFocusId(i.item_id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setFocusId(i.item_id);
+                    }
+                  }}
+                  className={`${panel} p-4 text-left cursor-pointer min-w-0 transition-shadow ${
+                    on ? "ring-2 ring-[var(--ee-magenta)]/30" : "hover:shadow-sm"
+                  }`}
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className="shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <Checkbox
+                        data-testid={`inv-check-${i.item_id}`}
+                        checked={selected.has(i.item_id)}
+                        onCheckedChange={() => toggle(i.item_id)}
+                      />
+                    </div>
+                    {(i.media || [])[0] ? (
+                      <div className="w-12 h-12 rounded-[9px] overflow-hidden shrink-0 bg-neutral-100 border border-[var(--ee-sidebar-border)]">
+                        <img
+                          src={i.media[0]}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="w-12 h-12 rounded-[9px] flex items-center justify-center text-[12px] font-bold shrink-0"
+                        style={{
+                          background: tone.avatar,
+                          color: tone.ink,
+                          boxShadow: `inset 0 0 0 1px ${tone.border}`,
+                        }}
+                      >
+                        {initials(i.description)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-[13px] truncate">
+                            {i.description}
+                          </div>
+                          <div className="text-[11px] text-neutral-500 truncate mt-0.5">
+                            {i.item_id} · {i.rack || "—"}
+                          </div>
+                        </div>
+                        <TonePill tone={tone} />
+                      </div>
+                      <div className="mt-3 flex items-end justify-between gap-2">
+                        <div
+                          className="text-lg font-bold tabular-nums"
+                          style={{ color: tone.ink }}
+                        >
+                          {fmtMoney(i.asking_price)}
+                        </div>
+                        <div className="text-[11px] text-neutral-500">
+                          {i.status}
+                          {flags.length ? " · flagged" : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {filtered.length === 0 && (
+              <div className="col-span-full text-center text-sm text-neutral-400 py-12 font-light">
+                No items match.
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "ledger" && (
+          <div
+            data-testid="inventory-tbody"
+            className={`${panel} overflow-x-auto min-w-0`}
+          >
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--ee-sidebar-border)]">
+              <Checkbox
+                checked={allChecked}
+                onCheckedChange={toggleAll}
+                data-testid="inv-select-all"
+              />
+              <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-neutral-500">
+                {filtered.length} shown
+              </span>
+            </div>
+            <table className="w-full text-left text-[13px] min-w-[720px]">
+              <thead>
+                <tr className="border-b border-[var(--ee-sidebar-border)] text-[10px] uppercase tracking-[0.14em] text-neutral-500 font-semibold">
+                  <th className="w-10 px-3 py-2.5" />
+                  <th className="px-3 py-2.5 font-semibold">Item</th>
+                  <th className="px-3 py-2.5 font-semibold">ID</th>
+                  <th className="px-3 py-2.5 font-semibold">Status</th>
+                  <th className="px-3 py-2.5 font-semibold">Rack</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Price</th>
+                  <th className="px-3 py-2.5 font-semibold">Consignor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--ee-sidebar-border)]">
+                {filtered.map((i) => {
+                  const tone = toneFor(i, today);
+                  const on = focusId === i.item_id;
+                  return (
+                    <tr
+                      key={i.item_id}
+                      data-testid={`inv-row-${i.item_id}`}
+                      onClick={() => setFocusId(i.item_id)}
+                      className={`cursor-pointer transition-colors ${
+                        on ? "bg-black/[0.03]" : "hover:bg-black/[0.015]"
+                      }`}
+                    >
+                      <td
+                        className="px-3 py-2.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Checkbox
+                          data-testid={`inv-check-${i.item_id}`}
+                          checked={selected.has(i.item_id)}
+                          onCheckedChange={() => toggle(i.item_id)}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 font-medium max-w-[200px] truncate">
+                        {i.description}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-neutral-500">
+                        {i.item_id}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <TonePill tone={tone} />
+                      </td>
+                      <td className="px-3 py-2.5 text-neutral-600">
+                        {i.rack || "—"}
+                      </td>
+                      <td
+                        className="px-3 py-2.5 text-right tabular-nums font-semibold"
+                        style={{ color: tone.ink }}
+                      >
+                        {fmtMoney(i.asking_price)}
+                      </td>
+                      <td className="px-3 py-2.5 text-neutral-600 max-w-[160px] truncate">
+                        {i.consignor_name || i.consignor_id}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <div className="text-center text-sm text-neutral-400 py-12 font-light">
+                No items match.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Detail panel */}
         <AnimatePresence mode="wait">
@@ -820,12 +1079,12 @@ export default function Inventory() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.35, ease }}
-              className={`${panel} p-6 sm:p-8 flex-1 min-w-0`}
+              className={`${panel} ee-detail-panel p-5 sm:p-6 lg:p-8`}
               data-testid="inventory-detail"
             >
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3 sm:gap-4 min-w-0">
                 <div
-                  className="w-14 h-14 rounded-[11px] flex items-center justify-center text-[15px] font-bold shrink-0 overflow-hidden"
+                  className="w-12 h-12 sm:w-14 sm:h-14 rounded-[11px] flex items-center justify-center text-[15px] font-bold shrink-0 overflow-hidden"
                   style={{
                     background: focusedTone.avatar,
                     color: focusedTone.ink,
@@ -843,20 +1102,20 @@ export default function Inventory() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="ee-detail-header">
                     <div className="min-w-0">
-                      <h2 className="ee-page-title text-2xl truncate">
+                      <h2 className="ee-page-title text-xl sm:text-2xl truncate">
                         {focused.description}
                       </h2>
-                      <p className="text-sm text-neutral-500 mt-1 tabular-nums">
+                      <p className="text-sm text-neutral-500 mt-1 tabular-nums truncate">
                         {focused.item_id}
                         {focused.category ? ` · ${focused.category}` : ""}
                         {focused.color ? ` · ${focused.color}` : ""}
                       </p>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="ee-detail-price shrink-0">
                       <div
-                        className="text-2xl font-bold tabular-nums"
+                        className="text-xl sm:text-2xl font-bold tabular-nums"
                         style={{ color: focusedTone.ink }}
                       >
                         {fmtMoney(focused.asking_price)}
@@ -876,7 +1135,7 @@ export default function Inventory() {
                 </div>
               </div>
 
-              <div className="mt-6">
+              <div className="mt-6 min-w-0">
                 <ItemMediaGallery
                   media={focused.media || []}
                   onChange={(next) => saveMedia(focused.item_id, next)}
@@ -886,7 +1145,7 @@ export default function Inventory() {
               {(focusedTone.reasons || []).length > 0 && (
                 <div
                   data-testid="inventory-attention-reason"
-                  className="mt-5 rounded-[11px] border p-3"
+                  className="mt-5 rounded-[11px] border p-3 min-w-0"
                   style={{
                     borderColor: focusedTone.border,
                     background: focusedTone.soft,
@@ -900,7 +1159,7 @@ export default function Inventory() {
                     {focusedTone.label}
                   </div>
                   <ul
-                    className="mt-1.5 text-sm space-y-1"
+                    className="mt-1.5 text-sm space-y-1 break-words"
                     style={{ color: focusedTone.ink }}
                   >
                     {focusedTone.reasons.map((reason) => (
@@ -910,7 +1169,7 @@ export default function Inventory() {
                 </div>
               )}
 
-              <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              <div className="ee-meta-grid mt-8">
                 {[
                   ["Status", <StatusPill key="s" status={focused.status} />],
                   ["Rack", focused.rack || "—"],
@@ -924,23 +1183,15 @@ export default function Inventory() {
                       key="c"
                       type="button"
                       onClick={() => nav(`/consignors/${focused.consignor_id}`)}
-                      className="hover:text-[var(--ee-magenta)] text-left truncate"
+                      className="block w-full max-w-full hover:text-[var(--ee-magenta)] text-left truncate"
                     >
                       {focused.consignor_name} · {focused.consignor_id}
                     </button>,
                   ],
-                  (focused.import_flags || []).length > 0 && [
-                    "Flags",
-                    (focused.import_flags || []).map(flagLabel).join(", "),
-                  ],
-                ]
-                  .filter(Boolean)
-                  .map(([label, value]) => (
-                  <div key={label} className="min-w-0">
-                    <div className="text-[10px] tracking-[0.14em] uppercase text-neutral-500 font-semibold">
-                      {label}
-                    </div>
-                    <div className="mt-1 font-medium min-w-0">{value}</div>
+                ].map(([label, value]) => (
+                  <div key={label} className="ee-meta-cell">
+                    <div className="ee-meta-label">{label}</div>
+                    <div className="ee-meta-value">{value}</div>
                   </div>
                 ))}
               </div>
@@ -992,13 +1243,13 @@ export default function Inventory() {
                 ) : null}
               </div>
             </motion.div>
-          ) : (
+          ) : view === "list" ? (
             <div
-              className={`${panel} p-8 flex-1 min-w-0 flex items-center justify-center text-sm text-neutral-400`}
+              className={`${panel} ee-detail-panel p-8 flex items-center justify-center text-sm text-neutral-400`}
             >
               Select an item to inspect.
             </div>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 
@@ -1041,7 +1292,7 @@ export default function Inventory() {
                   className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">Category</Label>
                   <Select
@@ -1083,7 +1334,7 @@ export default function Inventory() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">Size</Label>
                   <Input
@@ -1118,7 +1369,7 @@ export default function Inventory() {
                   ) : null}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">Rack</Label>
                   <Input
@@ -1142,7 +1393,7 @@ export default function Inventory() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">ID</Label>
                   <Input

@@ -11,7 +11,7 @@ const ADMIN_ONLY_PATHS = ["/payouts"];
 const MANAGER_PATHS = ["/analytics"];
 
 /**
- * Localhost-only: click the role label to preview Admin / Manager / Retail UI.
+ * Localhost-only: click the role label to preview Owner / Manager / Retail UI.
  */
 export default function RolePreviewMenu({ className = "" }) {
   const {

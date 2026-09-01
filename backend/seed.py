@@ -16,7 +16,7 @@ async def seed_admin(db) -> None:
 
     admin_email = os.environ.get("ADMIN_EMAIL", "shop@elegantexchange.co").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "ElegantExchange2026!")
-    admin_name = os.environ.get("ADMIN_NAME", "Admin")
+    admin_name = os.environ.get("ADMIN_NAME", "Youseline")
     now = datetime.now(timezone.utc).isoformat()
     existing = await db.users.find_one({"email": admin_email})
     if not existing:

@@ -21,9 +21,9 @@ function ShellChrome() {
   const { sidebarOpen, setSidebarOpen } = useShell();
 
   return (
-    <div className="min-h-screen flex w-full bg-[var(--ee-panel)] md:gap-0.5 md:p-0.5 md:bg-[var(--ee-bg)]">
+    <div className="min-h-screen flex w-full min-w-0 overflow-x-clip bg-[var(--ee-panel)] md:gap-0.5 md:p-0.5 md:bg-[var(--ee-bg)]">
       <Sidebar />
-      <div className="flex-1 min-w-0 flex flex-col min-h-screen md:min-h-[calc(100vh-0.25rem)] relative">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen md:min-h-[calc(100vh-0.25rem)] relative overflow-x-clip">
         {!sidebarOpen && (
           <button
             type="button"
@@ -39,7 +39,7 @@ function ShellChrome() {
 
         <MobileNav />
         <main className="flex-1 min-w-0">
-          <div className="bg-[var(--ee-panel)] min-h-screen md:min-h-[calc(100vh-0.25rem)] md:rounded-[11px] md:border md:border-[var(--ee-sidebar-border)] md:overflow-hidden">
+          <div className="bg-[var(--ee-panel)] min-h-screen md:min-h-[calc(100vh-0.25rem)] md:rounded-[11px] md:border md:border-[var(--ee-sidebar-border)] md:overflow-hidden min-w-0 overflow-x-clip">
             <Outlet />
           </div>
         </main>

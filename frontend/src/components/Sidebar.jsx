@@ -27,7 +27,7 @@ export default function Sidebar() {
   return (
     <aside
       data-testid="sidebar"
-      className="hidden md:flex flex-col w-[244px] shrink-0 h-[calc(100vh-0.25rem)] sticky top-0.5 overflow-hidden bg-[var(--ee-panel)] rounded-[11px] border border-[var(--ee-sidebar-border)]"
+      className="hidden md:flex flex-col w-[200px] lg:w-[244px] shrink-0 h-[calc(100vh-0.25rem)] sticky top-0.5 overflow-hidden bg-[var(--ee-panel)] rounded-[11px] border border-[var(--ee-sidebar-border)]"
     >
       <div className="flex items-center justify-between px-3 pt-3 pb-1">
         <button

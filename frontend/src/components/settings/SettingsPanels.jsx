@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fmtDateTime, formatApiError, API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { ROLE_LABELS, roleOf, isAdmin } from "@/lib/auth";
+import { SHARED_SHOP_EMAIL } from "@/lib/operator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,6 +195,24 @@ export function ShopPanel() {
     <div className="space-y-8" data-testid="settings-shop">
       <div>
         <h3 className="ee-section-header text-base mb-3">Square POS</h3>
+        <p className="text-sm text-neutral-500 font-light mb-4">
+          Connect once, then use <span className="text-neutral-700">Charge with Square</span> on
+          Sales from the Square Stand iPad. That opens Square Point of Sale with the piece ID in
+          the payment note so consignors stay attributed. In the{" "}
+          <a
+            href="https://developer.squareup.com/apps"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-[var(--ee-magenta)]"
+          >
+            Square Developer Console
+          </a>
+          , enable the Point of Sale API and set the iOS/Android callback URL to{" "}
+          <code className="text-xs break-all">
+            {square?.pos_callback_url || `${window.location.origin}/sales`}
+          </code>
+          .
+        </p>
         {!square?.configured ? (
           <p className="text-sm text-amber-800/80">
             Square credentials aren’t configured on the server yet. Add{" "}
@@ -351,7 +370,10 @@ export function TeamPanel() {
       </div>
 
       <ul className="divide-y divide-[var(--ee-border)] border border-[var(--ee-border)] rounded-[8px] overflow-hidden">
-        {users.map((u) => (
+        {users.map((u) => {
+          const isShopOwner =
+            (u.email || "").toLowerCase() === SHARED_SHOP_EMAIL;
+          return (
           <li
             key={u.id}
             className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2.5"
@@ -361,6 +383,14 @@ export function TeamPanel() {
               <div className="text-[12px] text-neutral-500 truncate">{u.email}</div>
             </div>
             <div className="flex items-center gap-2 self-end sm:self-auto">
+              {isShopOwner ? (
+                <span
+                  className="text-[11px] font-semibold tracking-[0.06em] uppercase text-neutral-500 px-2 py-1"
+                  data-testid={`team-role-${u.id}`}
+                >
+                  Owner
+                </span>
+              ) : (
               <Select
                 value={roleOf(u)}
                 onValueChange={async (role) => {
@@ -377,11 +407,13 @@ export function TeamPanel() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="admin">Owner</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="retail">Retail</SelectItem>
                 </SelectContent>
               </Select>
+              )}
+              {!isShopOwner && (
               <button
                 type="button"
                 onClick={async () => {
@@ -399,9 +431,11 @@ export function TeamPanel() {
               >
                 <Trash2 size={14} />
               </button>
+              )}
             </div>
           </li>
-        ))}
+          );
+        })}
         {users.length === 0 && (
           <li className="px-3 py-8 text-center text-sm text-neutral-400 font-light">
             No team members yet.
@@ -511,7 +545,7 @@ function InviteUserDialog({ open, onClose, onDone }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="admin">Owner</SelectItem>
                 <SelectItem value="manager">Manager</SelectItem>
                 <SelectItem value="retail">Retail</SelectItem>
               </SelectContent>

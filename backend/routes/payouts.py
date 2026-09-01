@@ -10,9 +10,25 @@ router = APIRouter(prefix="/api/payouts", tags=["payouts"])
 
 
 @router.get("/queue")
-async def queue(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
+async def queue(request: Request, _u: dict = Depends(require_roles("admin"))):
     """Aggregated pending balance per consignor."""
     db = request.app.state.db
+    # Keep expired statuses current so queue can surface expiry pressure
+    today = date.today().isoformat()
+    await db.inventory.update_many(
+        {"status": "Active", "period_end": {"$lte": today}},
+        {"$set": {"status": "Expired"}},
+    )
+    expired_map: dict[str, int] = {}
+    async for row in db.inventory.aggregate(
+        [
+            {"$match": {"status": "Expired"}},
+            {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
+        ]
+    ):
+        if row.get("_id"):
+            expired_map[row["_id"]] = int(row.get("n") or 0)
+
     pipeline = [
         {"$match": {"payout_status": "Pending"}},
         {
@@ -41,23 +57,33 @@ async def queue(request: Request, _u: dict = Depends(require_roles("admin", "man
                 days_since = (date.today() - d).days
             except Exception:
                 pass
+        expired_n = expired_map.get(consignor_id, 0)
+        oldest = r.get("oldest_sale")
+        days_pending = None
+        if oldest:
+            try:
+                days_pending = (date.today() - date.fromisoformat(str(oldest)[:10])).days
+            except Exception:
+                days_pending = None
         rows.append(
             {
                 "consignor_id": consignor_id,
                 "full_name": c["full_name"],
                 "balance_owed": round(r["balance"], 2),
                 "items_sold": r["items_count"],
+                "expired_items": expired_n,
                 "payout_method": c.get("payout_method", ""),
                 "payout_details": c.get("payout_details", ""),
                 "days_since_last_payout": days_since,
-                "oldest_sale": r["oldest_sale"],
+                "oldest_sale": oldest,
+                "days_pending": days_pending,
             }
         )
     return rows
 
 
 @router.get("/history")
-async def history(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
+async def history(request: Request, _u: dict = Depends(require_roles("admin"))):
     db = request.app.state.db
     payouts = await db.payouts.find({}, {"_id": 0}).sort("date_paid", -1).to_list(5000)
     cids = list({p["consignor_id"] for p in payouts})
@@ -71,7 +97,7 @@ async def history(request: Request, _u: dict = Depends(require_roles("admin", "m
 
 @router.post("")
 async def process_payout(
-    body: PayoutCreate, request: Request, owner: dict = Depends(require_roles("admin", "manager"))
+    body: PayoutCreate, request: Request, owner: dict = Depends(require_roles("admin"))
 ):
     db = request.app.state.db
     # Get all pending sales for this consignor sorted by oldest first

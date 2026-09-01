@@ -202,9 +202,23 @@ class SaleCreate(BaseModel):
     notes: Optional[str] = ""
 
 
+class SquareChargeCreate(BaseModel):
+    item_id: str
+    sale_price: float
+    notes: Optional[str] = ""
+
+
+class SquareChargeComplete(BaseModel):
+    state: str
+    status: Literal["ok", "error"] = "ok"
+    transaction_id: Optional[str] = None
+    client_transaction_id: Optional[str] = None
+    error_code: Optional[str] = None
+
+
 # ----- Payouts -----
 class PayoutCreate(BaseModel):
     consignor_id: str
     amount: float
-    method: Literal["Cash", "Check", "Zelle", "Venmo", "Store Credit"]
+    method: Literal["Cash", "Check", "Zelle", "Venmo", "Store Credit", "Square"]
     notes: Optional[str] = ""

@@ -67,6 +67,18 @@ export const fmtMoney = (n) =>
     currency: "USD",
   });
 
+/** US-style phone: (000) 000-0000. Falls back to trimmed original if not 10 digits. */
+export const fmtPhone = (raw) => {
+  if (raw == null || raw === "") return "";
+  const digits = String(raw).replace(/\D/g, "");
+  const core =
+    digits.length === 11 && digits.startsWith("1")
+      ? digits.slice(1)
+      : digits;
+  if (core.length !== 10) return String(raw).trim();
+  return `(${core.slice(0, 3)}) ${core.slice(3, 6)}-${core.slice(6)}`;
+};
+
 export const fmtDate = (iso) => {
   if (!iso) return "—";
   const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
