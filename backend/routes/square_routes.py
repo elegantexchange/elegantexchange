@@ -1,5 +1,6 @@
 """Square API integration routes (OAuth + sync + POS charge)."""
 import os
+import asyncio
 import re
 import secrets
 import uuid
@@ -499,14 +500,17 @@ async def complete_charge(
     return {"ok": True, "sale": doc, "idempotent": False}
 
 
-@router.post("/sync")
-async def sync(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
-    """Pull recent payments from Square and attempt to match by SKU/note to inventory."""
-    db = request.app.state.db
-    try:
-        headers, doc = await _square_auth_headers(db)
-    except HTTPException:
-        raise
+async def run_square_sync(
+    db,
+    *,
+    lookback_days: int = 90,
+    max_pages: int = 15,
+) -> dict:
+    """Pull Square payments, cache them, and match boutique piece ids in notes.
+
+    Returns counts: matched, unmatched, pulled.
+    """
+    headers, doc = await _square_auth_headers(db)
 
     matched = 0
     unmatched = 0
@@ -514,11 +518,20 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
         async with httpx.AsyncClient(timeout=30) as client:
             payments = []
             cursor = None
-            begin = (
-                datetime.now(timezone.utc) - timedelta(days=90)
-            ).strftime("%Y-%m-%dT00:00:00Z")
-            # Pull several pages so Sales / charts can show Square history
-            for _ in range(15):
+            last_sync = (doc or {}).get("last_sync_at")
+            begin_floor = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+            begin_dt = begin_floor
+            if last_sync and lookback_days < 90:
+                # Overlap one day so late-settling payments aren't missed
+                try:
+                    ls = datetime.fromisoformat(str(last_sync).replace("Z", "+00:00"))
+                    candidate = ls - timedelta(days=1)
+                    if candidate > begin_floor:
+                        begin_dt = candidate
+                except Exception:
+                    pass
+            begin = begin_dt.strftime("%Y-%m-%dT00:00:00Z")
+            for _ in range(max_pages):
                 params = {
                     "limit": 100,
                     "sort_order": "DESC",
@@ -532,7 +545,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                     params=params,
                 )
                 if r.status_code == 401:
-                    # Force refresh and retry once
                     doc["expires_at"] = "2000-01-01T00:00:00Z"
                     await db.square_connection.update_one(
                         {"_id": "default"}, {"$set": {"expires_at": doc["expires_at"]}}
@@ -570,15 +582,12 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
             amount = (p.get("amount_money") or {}).get("amount", 0) / 100.0
             payment_date = (p.get("created_at") or "")[:10] or date.today().isoformat()
 
-            # Always cache payment for Home trend / Analytics (idempotent)
             await upsert_square_payment(db, p)
 
-            # Skip if already synced as matched
             existing_log = await db.square_sync_log.find_one({"transaction_id": tx_id})
             if existing_log and existing_log.get("status") == "matched":
                 matched += 1
                 continue
-            # Already recorded as an EE sale from Charge / prior sync
             existing_sale = await db.sales.find_one({"square_transaction_id": tx_id})
             if existing_sale:
                 await db.square_sync_log.update_one(
@@ -599,8 +608,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                 matched += 1
                 continue
 
-            # Match boutique item ids: 2001-01, bare consignor 2001, or legacy EE-####
-            # Include Sold so a floor-logged sale can be linked (not duplicated)
             matched_item_id = None
             candidates = re.findall(r"(?:EE-)?\d{4}(?:-\d{2})?", note)
             for candidate in candidates:
@@ -614,7 +621,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                     }
                 )
                 if not item and "-" not in bare:
-                    # Note only has consignor id — match a floor item for that consignor
                     item = await db.inventory.find_one(
                         {
                             "consignor_id": bare,
@@ -632,7 +638,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                 )
                 existing_item_sale = await find_real_sale_for_item(db, matched_item_id)
                 if existing_item_sale:
-                    # Floor (or prior sync) already logged this piece — link only
                     await attach_square_transaction(
                         db,
                         existing_item_sale,
@@ -681,7 +686,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                     )
                     await clear_liability_sales_for_item(db, matched_item_id)
                 else:
-                    # Matched id but nothing to attach or create
                     await db.square_sync_log.update_one(
                         {"transaction_id": tx_id},
                         {
@@ -737,6 +741,52 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
             {"$set": {"last_sync_at": datetime.now(timezone.utc).isoformat()}},
         )
     return {"matched": matched, "unmatched": unmatched, "pulled": matched + unmatched}
+
+
+_AUTO_SYNC_LOCK = asyncio.Lock()
+_AUTO_SYNC_MIN_INTERVAL_SEC = 45
+
+
+async def maybe_auto_sync(
+    db,
+    *,
+    min_interval_sec: int = _AUTO_SYNC_MIN_INTERVAL_SEC,
+    lookback_days: int = 14,
+    max_pages: int = 8,
+) -> dict | None:
+    """Throttled Square pull for Home/Sales/background — no-op if recently synced."""
+    if db is None:
+        return None
+    if _AUTO_SYNC_LOCK.locked():
+        return None
+    async with _AUTO_SYNC_LOCK:
+        doc = await db.square_connection.find_one({"_id": "default"})
+        if not doc or not doc.get("access_token"):
+            return None
+        last = doc.get("last_sync_at")
+        if last and min_interval_sec > 0:
+            try:
+                ls = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+                age = (datetime.now(timezone.utc) - ls).total_seconds()
+                if age < min_interval_sec:
+                    return None
+            except Exception:
+                pass
+        try:
+            return await run_square_sync(
+                db, lookback_days=lookback_days, max_pages=max_pages
+            )
+        except HTTPException:
+            return None
+        except Exception:
+            return None
+
+
+@router.post("/sync")
+async def sync(request: Request, _u: dict = Depends(require_roles("admin", "manager"))):
+    """Pull recent payments from Square and attempt to match by SKU/note to inventory."""
+    db = request.app.state.db
+    return await run_square_sync(db, lookback_days=90, max_pages=15)
 
 
 @router.get("/unmatched")

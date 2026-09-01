@@ -134,6 +134,31 @@ async def _boot_mongo(app: FastAPI) -> None:
             await asyncio.sleep(min(2 ** min(attempt, 4), 20))
 
 
+async def _square_auto_sync_loop(app: FastAPI) -> None:
+    """Keep Square payments flowing into Sales without a manual Sync tap."""
+    while not getattr(app.state, "db_ready", False):
+        await asyncio.sleep(2)
+    await asyncio.sleep(15)
+    while True:
+        try:
+            db = getattr(app.state, "db", None)
+            if db is not None:
+                from routes.square_routes import maybe_auto_sync
+
+                result = await maybe_auto_sync(db)
+                if result:
+                    logger.info(
+                        "Square auto-sync · matched=%s unmatched=%s",
+                        result.get("matched"),
+                        result.get("unmatched"),
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Square auto-sync failed: %s", e)
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Critical for Railway: do not await Mongo (or anything slow) before yield.
@@ -143,6 +168,7 @@ async def lifespan(app: FastAPI):
     app.state.db_ready = False
 
     boot_task = asyncio.create_task(_boot_mongo(app))
+    sync_task = asyncio.create_task(_square_auto_sync_loop(app))
     logger.info(
         "HTTP ready · PORT=%s · CORS=%s · mongo booting in background",
         os.environ.get("PORT", "unset"),
@@ -150,6 +176,11 @@ async def lifespan(app: FastAPI):
     )
     yield
 
+    sync_task.cancel()
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        pass
     boot_task.cancel()
     try:
         await boot_task

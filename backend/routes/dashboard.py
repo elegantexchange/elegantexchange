@@ -38,6 +38,10 @@ async def dashboard(
     await scrub_donated_returned_pendings(db)
     await backfill_expired_floor_sales(db)
 
+    from routes.square_routes import maybe_auto_sync
+
+    await maybe_auto_sync(db)
+
     real_q = real_sales_mongo_filter()
 
     # Sales today = Square COMPLETED charges + floor logs without a Square txn

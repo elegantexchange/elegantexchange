@@ -115,22 +115,15 @@ export default function Sales() {
     loadSquare();
   }, []);
 
-  // Pull Square payments into Sales when connected (matched + unmatched)
+  // Refresh list while Sales is open — GET /sales auto-pulls Square (throttled)
   useEffect(() => {
-    if (!showFinance || !square?.connected) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        await api.post("/square/sync");
-        if (!cancelled) load();
-      } catch {
-        /* keep existing list if sync fails */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [showFinance, square?.connected]);
+    if (!showFinance) return undefined;
+    const id = setInterval(() => {
+      load();
+      loadSquare();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [showFinance]);
 
   // Square Point of Sale returns here with ?data=… (iOS) or com.squareup.pos.* (Android)
   useEffect(() => {

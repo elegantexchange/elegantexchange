@@ -92,6 +92,14 @@ export default function Dashboard() {
     api.get(`/dashboard?period=${period}`).then((r) => setData(r.data));
   }, [period]);
 
+  // Keep Sales today / trend in step with Square (backend also auto-pulls)
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.get(`/dashboard?period=${period}`).then((r) => setData(r.data)).catch(() => {});
+    }, 60000);
+    return () => clearInterval(id);
+  }, [period]);
+
   useEffect(() => {
     api
       .get("/drop-offs?status=needs_assessment")

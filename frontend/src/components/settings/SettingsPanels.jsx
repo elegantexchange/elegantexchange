@@ -224,8 +224,9 @@ export function ShopPanel() {
         <h3 className="ee-section-header text-base mb-3">Square POS</h3>
         <p className="text-sm text-neutral-500 font-light mb-4">
           Connect your Square account here. Then charge from Sales on the floor iPad — payments
-          stay tied to each piece and consignor. If Sync says unauthorized, Disconnect and Connect
-          again to refresh login.
+          stay tied to each piece and consignor. Sales today and the Sales list refresh from
+          Square on their own (about every minute). Use Sync only if you need an immediate
+          pull. If Sync says unauthorized, Disconnect and Connect again to refresh login.
         </p>
         {!square?.configured ? (
           <p className="text-sm text-amber-800/80">

@@ -27,6 +27,9 @@ async def get_analytics(
     _u: dict = Depends(require_roles("admin", "manager")),
 ):
     db = request.app.state.db
+    from routes.square_routes import maybe_auto_sync
+
+    await maybe_auto_sync(db)
     start = _range_start(period)
     today = date.today()
     # Far-enough floor for "all time" charts without scanning forever

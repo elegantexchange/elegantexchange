@@ -26,6 +26,9 @@ _RETAIL_HIDDEN = (
 @router.get("")
 async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
     db = request.app.state.db
+    from routes.square_routes import maybe_auto_sync
+
+    await maybe_auto_sync(db)
     # Floor + Square sales only — expired-floor / opening-balance owed stay on Payouts
     sales = (
         await db.sales.find(real_sales_mongo_filter(), {"_id": 0})
