@@ -8,14 +8,13 @@ import { STORE } from "@/lib/brand";
 import { NAV_SECTIONS } from "@/constants/nav";
 import { hasRole, roleOf } from "@/lib/auth";
 import RolePreviewMenu from "@/components/RolePreviewMenu";
-import { needsOperatorPick, readOperator, displayNameFor } from "@/lib/operator";
+import { displayNameFor } from "@/lib/operator";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const { sidebarOpen, setSidebarOpen } = useShell();
   const { startTour } = useTour();
   const nav = useNavigate();
-  const operator = needsOperatorPick(user) ? readOperator() : null;
 
   const sections = NAV_SECTIONS.map((section) => ({
     ...section,
