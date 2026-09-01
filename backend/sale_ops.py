@@ -1,4 +1,5 @@
 """Shared sale insert used by manual Log Sale and Square charge complete."""
+from collections import defaultdict
 from datetime import datetime, timezone, date
 import uuid
 
@@ -71,6 +72,83 @@ def resolve_sale_source(doc: dict) -> str:
     if raw in ("manual", "square", "square_unmatched"):
         return raw
     return raw or "manual"
+
+
+async def upsert_square_payment(db, payment: dict) -> dict | None:
+    """Cache a Square Payment for Sales today / trend / analytics (no duplicates)."""
+    tx_id = (payment.get("id") or "").strip()
+    if not tx_id:
+        return None
+    status = (payment.get("status") or "").upper()
+    amount = (payment.get("amount_money") or {}).get("amount", 0) / 100.0
+    # Net of refunds when Square provides it
+    net = payment.get("net_amount_money") or payment.get("total_money")
+    if isinstance(net, dict) and net.get("amount") is not None:
+        amount = float(net["amount"]) / 100.0
+    created = payment.get("created_at") or ""
+    payment_date = created[:10] if created else date.today().isoformat()
+    doc = {
+        "transaction_id": tx_id,
+        "status": status,
+        "amount": round(float(amount), 2),
+        "payment_date": payment_date,
+        "created_at": created,
+        "note": (payment.get("note") or "").strip(),
+        "order_id": payment.get("order_id"),
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.square_payments.update_one(
+        {"transaction_id": tx_id},
+        {"$set": doc},
+        upsert=True,
+    )
+    return doc
+
+
+async def combined_daily_revenue(
+    db, start_iso: str, end_iso: str | None = None
+) -> dict[str, float]:
+    """Square COMPLETED charges + floor-logged sales without a Square txn.
+
+    Matched Square sales are counted via square_payments only, so Sync never
+    double-counts a floor log that was later linked to the same payment.
+    """
+    by_day: dict[str, float] = defaultdict(float)
+
+    pay_q: dict = {
+        "status": "COMPLETED",
+        "payment_date": {"$gte": start_iso},
+    }
+    if end_iso:
+        pay_q["payment_date"]["$lte"] = end_iso
+    async for p in db.square_payments.find(pay_q, {"_id": 0}):
+        amt = float(p.get("amount") or 0)
+        if amt == 0:
+            continue
+        by_day[p["payment_date"]] = by_day.get(p["payment_date"], 0.0) + amt
+
+    sale_q: dict = {
+        "$and": [
+            real_sales_mongo_filter(),
+            {"sale_date": {"$gte": start_iso}},
+            {
+                "$or": [
+                    {"square_transaction_id": None},
+                    {"square_transaction_id": ""},
+                    {"square_transaction_id": {"$exists": False}},
+                ]
+            },
+        ]
+    }
+    if end_iso:
+        sale_q["$and"].append({"sale_date": {"$lte": end_iso}})
+    async for s in db.sales.find(sale_q, {"_id": 0, "sale_date": 1, "sale_price": 1}):
+        d = s.get("sale_date") or ""
+        if not d:
+            continue
+        by_day[d] = by_day.get(d, 0.0) + float(s.get("sale_price") or 0)
+
+    return {k: round(v, 2) for k, v in by_day.items()}
 
 
 async def find_real_sale_for_item(db, item_id: str) -> dict | None:

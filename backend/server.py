@@ -100,6 +100,8 @@ async def _boot_mongo(app: FastAPI) -> None:
                 await db.sales.create_index("consignor_id")
                 await db.sales.create_index("sale_date")
                 await db.payouts.create_index("consignor_id")
+                await db.square_payments.create_index("transaction_id", unique=True)
+                await db.square_payments.create_index("payment_date")
                 await db.square_sync_log.create_index("transaction_id", unique=True)
                 await db.drop_offs.create_index("status")
                 await db.drop_offs.create_index("consignor_id")

@@ -6,6 +6,7 @@ from collections import defaultdict
 from auth import get_current_user
 from sale_ops import (
     backfill_expired_floor_sales,
+    combined_daily_revenue,
     real_sales_mongo_filter,
     scrub_donated_returned_pendings,
 )
@@ -37,14 +38,11 @@ async def dashboard(
 
     real_q = real_sales_mongo_filter()
 
-    # Sales today = Square + floor-logged only (not expired-floor owed)
-    today_sales_cursor = db.sales.find(
-        {"$and": [real_q, {"sale_date": today.isoformat()}]},
-        {"_id": 0},
+    # Sales today = Square COMPLETED charges + floor logs without a Square txn
+    days_for_today = await combined_daily_revenue(
+        db, today.isoformat(), today.isoformat()
     )
-    sales_today_total = 0.0
-    async for s in today_sales_cursor:
-        sales_today_total += float(s.get("sale_price") or 0)
+    sales_today_total = float(days_for_today.get(today.isoformat(), 0.0))
 
     # Active items
     active_items = await db.inventory.count_documents({"status": "Active"})
@@ -132,16 +130,10 @@ async def dashboard(
         item["consignor_name"] = house_display_name(item, c, fallback="")
         expired.append(item)
 
-    # Sales trend — real sales only
+    # Sales trend — Square charges + unmatched floor logs (no double-count)
     days = 7 if period == "week" else (30 if period == "month" else 90)
     start_iso = (today - timedelta(days=days * 2 - 1)).isoformat()
-    trend_sales = await db.sales.find(
-        {"$and": [real_q, {"sale_date": {"$gte": start_iso}}]},
-        {"_id": 0, "sale_date": 1, "sale_price": 1},
-    ).to_list(50000)
-    by_day = defaultdict(float)
-    for s in trend_sales:
-        by_day[s["sale_date"]] += s["sale_price"]
+    by_day = await combined_daily_revenue(db, start_iso)
     # Build last `days` days
     this_period = []
     prev_period = []

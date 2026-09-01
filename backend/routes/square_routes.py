@@ -4,7 +4,7 @@ import re
 import secrets
 import uuid
 import httpx
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -17,6 +17,7 @@ from sale_ops import (
     clear_liability_sales_for_item,
     find_real_sale_for_item,
     insert_sale,
+    upsert_square_payment,
 )
 
 router = APIRouter(prefix="/api/square", tags=["square"])
@@ -405,6 +406,22 @@ async def complete_charge(
         upsert=True,
     )
 
+    # Cache POS charge on Square payments ledger for charts
+    await upsert_square_payment(
+        db,
+        {
+            "id": tx_id,
+            "status": "COMPLETED",
+            "amount_money": {
+                "amount": int(round(float(pending["sale_price"]) * 100)),
+                "currency": "USD",
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "note": pending.get("pos_notes") or pending["item_id"],
+            "order_id": None,
+        },
+    )
+
     if normalize_role(user.get("role")) == "retail":
         for key in _RETAIL_HIDDEN:
             doc.pop(key, None)
@@ -430,9 +447,16 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
         async with httpx.AsyncClient(timeout=30) as client:
             payments = []
             cursor = None
-            # Pull several pages so Sales can show a fuller Square history
-            for _ in range(10):
-                params = {"limit": 100, "sort_order": "DESC"}
+            begin = (
+                datetime.now(timezone.utc) - timedelta(days=90)
+            ).strftime("%Y-%m-%dT00:00:00Z")
+            # Pull several pages so Sales / charts can show Square history
+            for _ in range(15):
+                params = {
+                    "limit": 100,
+                    "sort_order": "DESC",
+                    "begin_time": begin,
+                }
                 if cursor:
                     params["cursor"] = cursor
                 r = await client.get(
@@ -454,9 +478,15 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
             note = (p.get("note") or "").strip()
             order_id = p.get("order_id")
             amount = (p.get("amount_money") or {}).get("amount", 0) / 100.0
+            payment_date = (p.get("created_at") or "")[:10] or date.today().isoformat()
+
+            # Always cache payment for Home trend / Analytics (idempotent)
+            await upsert_square_payment(db, p)
+
             # Skip if already synced as matched
             existing_log = await db.square_sync_log.find_one({"transaction_id": tx_id})
             if existing_log and existing_log.get("status") == "matched":
+                matched += 1
                 continue
             # Already recorded as an EE sale from Charge / prior sync
             existing_sale = await db.sales.find_one({"square_transaction_id": tx_id})
@@ -470,6 +500,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                             "status": "matched",
                             "synced_at": datetime.now(timezone.utc).isoformat(),
                             "sale_amount": amount,
+                            "payment_date": payment_date,
                             "note": note,
                         }
                     },
@@ -569,6 +600,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                                 "status": "unmatched",
                                 "synced_at": datetime.now(timezone.utc).isoformat(),
                                 "sale_amount": amount,
+                                "payment_date": payment_date,
                                 "note": note,
                             }
                         },
@@ -586,6 +618,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                             "status": "matched",
                             "synced_at": datetime.now(timezone.utc).isoformat(),
                             "sale_amount": amount,
+                            "payment_date": payment_date,
                             "note": note,
                         }
                     },
@@ -601,6 +634,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                             "status": "unmatched",
                             "synced_at": datetime.now(timezone.utc).isoformat(),
                             "sale_amount": amount,
+                            "payment_date": payment_date,
                             "note": note,
                         }
                     },

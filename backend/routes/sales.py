@@ -67,26 +67,32 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
                 s.pop(key, None)
         out.append(s)
 
-    # Surface unmatched Square payments so Sales shows every synced Square charge
+    # Surface Square COMPLETED payments that aren't linked to an EE sale yet
     if not retail:
-        seen_tx = {
+        linked_tx = {
             s.get("square_transaction_id")
             for s in sales
             if s.get("square_transaction_id")
         }
-        async for row in db.square_sync_log.find(
-            {"status": "unmatched"}, {"_id": 0}
-        ).sort("synced_at", -1).limit(200):
-            tx_id = row.get("transaction_id")
-            if not tx_id or tx_id in seen_tx:
+        async for pay in db.square_payments.find(
+            {"status": "COMPLETED"}, {"_id": 0}
+        ).sort("payment_date", -1).limit(200):
+            tx_id = pay.get("transaction_id")
+            if not tx_id or tx_id in linked_tx:
                 continue
-            amount = float(row.get("sale_amount") or 0)
-            note = (row.get("note") or "").strip()
-            synced = row.get("synced_at") or ""
+            # Prefer sync_log unmatched/dismissed state
+            log = await db.square_sync_log.find_one({"transaction_id": tx_id}, {"_id": 0})
+            if log and log.get("status") == "dismissed":
+                continue
+            if log and log.get("status") == "matched":
+                continue
+            amount = float(pay.get("amount") or 0)
+            note = (pay.get("note") or "").strip()
+            pay_date = pay.get("payment_date") or ""
             out.append(
                 {
                     "id": f"square-unmatched-{tx_id}",
-                    "sale_date": (synced[:10] if synced else ""),
+                    "sale_date": pay_date,
                     "item_id": "",
                     "consignor_id": "",
                     "consignor_name": "Square · unmatched",
@@ -101,7 +107,7 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
                     "payout_date": None,
                     "payout_method": None,
                     "notes": note,
-                    "created_at": synced,
+                    "created_at": pay.get("created_at") or pay.get("synced_at") or "",
                     "source": "square_unmatched",
                     "operator_name": "",
                     "created_by": "",

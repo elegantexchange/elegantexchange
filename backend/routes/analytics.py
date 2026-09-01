@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from auth import require_roles
-from sale_ops import real_sales_mongo_filter
+from sale_ops import combined_daily_revenue, real_sales_mongo_filter
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -28,6 +28,16 @@ async def get_analytics(
 ):
     db = request.app.state.db
     start = _range_start(period)
+    today = date.today()
+    # Far-enough floor for "all time" charts without scanning forever
+    start_iso = start or (today - timedelta(days=365)).isoformat()
+    by_day = await combined_daily_revenue(db, start_iso)
+    if start:
+        by_day = {d: a for d, a in by_day.items() if d >= start}
+
+    total_sales = round(sum(by_day.values()), 2)
+    trend = [{"date": d, "amount": round(v, 2)} for d, v in sorted(by_day.items())]
+
     real_q = real_sales_mongo_filter()
     if start is None:
         sales_q = real_q
@@ -35,25 +45,18 @@ async def get_analytics(
         sales_q = {"$and": [real_q, {"sale_date": {"$gte": start}}]}
     sales = await db.sales.find(sales_q, {"_id": 0}).to_list(50000)
 
-    total_sales = sum(s["sale_price"] for s in sales)
-    store_revenue = sum(s["store_cut"] for s in sales)
+    store_revenue = round(sum(float(s.get("store_cut") or 0) for s in sales), 2)
     items_sold = len(sales)
     avg_price = round(total_sales / items_sold, 2) if items_sold else 0
 
-    # Daily trend
-    daily = defaultdict(float)
-    for s in sales:
-        daily[s["sale_date"]] += s["sale_price"]
-    trend = [{"date": d, "amount": round(v, 2)} for d, v in sorted(daily.items())]
-
-    # Revenue by category (need to join inventory)
-    item_ids = list({s["item_id"] for s in sales})
+    # Revenue by category (need to join inventory) — item-linked sales only
+    item_ids = list({s["item_id"] for s in sales if s.get("item_id")})
     cat_map = {}
     async for i in db.inventory.find({"item_id": {"$in": item_ids}}, {"_id": 0}):
         cat_map[i["item_id"]] = i.get("category", "Other")
     by_cat = defaultdict(float)
     for s in sales:
-        by_cat[cat_map.get(s["item_id"], "Other")] += s["sale_price"]
+        by_cat[cat_map.get(s["item_id"], "Other")] += float(s.get("sale_price") or 0)
     revenue_by_category = [
         {"category": k, "amount": round(v, 2)} for k, v in sorted(by_cat.items(), key=lambda x: -x[1])
     ]
