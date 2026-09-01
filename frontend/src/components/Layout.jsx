@@ -65,19 +65,32 @@ export default function Layout() {
   if (user && needsOnboarding(user) && location.pathname !== "/onboarding") {
     return <Navigate to="/onboarding" replace />;
   }
-  if (loading || (!greeted && user && !needsOnboarding(user))) {
+
+  // Auth still resolving — logo hold only
+  if (loading && !user) {
+    return <WelcomeSplash user={null} authLoading onDone={() => {}} />;
+  }
+  if (!user) return null;
+
+  // shop@: presence pick only after sign-in, before thank-you splash
+  if (needsOperatorPick(user) && !operator) {
+    return <OperatorRollCall onSelect={onOperatorSelect} />;
+  }
+
+  if (!greeted && !needsOnboarding(user)) {
+    const splashUser =
+      needsOperatorPick(user) && operator
+        ? { ...user, name: operator.name }
+        : user;
     return (
       <WelcomeSplash
-        user={user}
-        authLoading={loading}
+        user={splashUser}
+        authLoading={false}
         onDone={finishGreeting}
       />
     );
   }
-  if (!user) return null;
-  if (needsOperatorPick(user) && !operator) {
-    return <OperatorRollCall onSelect={onOperatorSelect} />;
-  }
+
   return (
     <ShellProvider>
       <TourProvider>

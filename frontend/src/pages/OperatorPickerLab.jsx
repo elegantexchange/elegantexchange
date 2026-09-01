@@ -325,13 +325,13 @@ function LedgerGlass({ picked, onPick, subtitle }) {
             Presence
           </div>
           <h2
-            className="mt-3 text-[1.45rem] font-semibold tracking-[-0.02em] text-[var(--ee-ink)]"
+            className="mt-3 text-[1.25rem] sm:text-[1.35rem] font-semibold tracking-[-0.02em] text-[var(--ee-ink)]"
             style={{ fontFamily: "Montserrat, system-ui, sans-serif" }}
           >
             Who&apos;s logging in?
           </h2>
           {subtitle ? (
-            <p className="mt-2 text-[12.5px] text-neutral-600/90 font-light leading-relaxed">
+            <p className="mt-1.5 text-[12px] text-neutral-600/90 font-light leading-relaxed">
               {subtitle}
             </p>
           ) : null}
