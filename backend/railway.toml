@@ -4,6 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "sh start.sh"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 300
+# Liveness only — process must listen even if Mongo is still connecting.
+healthcheckPath = "/health"
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

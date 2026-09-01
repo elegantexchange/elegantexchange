@@ -24,6 +24,7 @@ from routes.dashboard import router as dashboard_router
 from routes.square_routes import router as square_router
 from routes.admin import router as admin_router
 from routes.settings import router as settings_router
+from routes.drop_offs import router as drop_offs_router
 from seed import seed_admin, seed_demo
 
 
@@ -48,54 +49,82 @@ async def lifespan(app: FastAPI):
     logger.info("Connecting to MongoDB database=%s", db_name)
     client = AsyncIOMotorClient(
         mongo_url,
-        serverSelectionTimeoutMS=10000,
+        serverSelectionTimeoutMS=8000,
     )
     db = client[db_name]
     app.state.mongo_client = client
     app.state.db = db
+    app.state.db_ready = False
 
-    last_err: Exception | None = None
-    for attempt in range(1, 6):
+    async def _ready_db() -> bool:
+        """Ping, indexes, seed. Returns True when usable."""
+        await client.admin.command("ping")
         try:
-            await client.admin.command("ping")
-            logger.info("MongoDB ping OK (attempt %s)", attempt)
-            last_err = None
-            break
+            await db.users.create_index("email", unique=True)
+            await db.consignors.create_index("consignor_id", unique=True)
+            await db.inventory.create_index("item_id", unique=True)
+            await db.inventory.create_index("consignor_id")
+            await db.inventory.create_index("status")
+            await db.sales.create_index("item_id")
+            await db.sales.create_index("consignor_id")
+            await db.sales.create_index("sale_date")
+            await db.payouts.create_index("consignor_id")
+            await db.square_sync_log.create_index("transaction_id", unique=True)
+            await db.drop_offs.create_index("status")
+            await db.drop_offs.create_index("consignor_id")
+            await db.drop_offs.create_index("created_at")
         except Exception as e:
-            last_err = e
-            logger.warning(
-                "MongoDB ping failed (attempt %s/5): %s", attempt, e
-            )
-            if attempt < 5:
-                await asyncio.sleep(min(2 ** attempt, 15))
-    if last_err is not None:
-        logger.exception(
-            "MongoDB ping failed — check MONGO_URL and Atlas Network Access"
-        )
-        raise RuntimeError(f"MongoDB ping failed: {last_err}") from last_err
+            logger.warning("Index setup warning: %s", e)
+        await seed_admin(db)
+        if os.environ.get("SEED_DEMO", "").lower() in ("1", "true", "yes"):
+            await seed_demo(db)
+        return True
 
+    # One short attempt before we open the port — don't block Railway healthcheck.
     try:
-        await db.users.create_index("email", unique=True)
-        await db.consignors.create_index("consignor_id", unique=True)
-        await db.inventory.create_index("item_id", unique=True)
-        await db.inventory.create_index("consignor_id")
-        await db.inventory.create_index("status")
-        await db.sales.create_index("item_id")
-        await db.sales.create_index("consignor_id")
-        await db.sales.create_index("sale_date")
-        await db.payouts.create_index("consignor_id")
-        await db.square_sync_log.create_index("transaction_id", unique=True)
+        await _ready_db()
+        app.state.db_ready = True
+        logger.info("MongoDB ready on startup")
     except Exception as e:
-        logger.warning("Index setup warning: %s", e)
-    await seed_admin(db)
-    if os.environ.get("SEED_DEMO", "").lower() in ("1", "true", "yes"):
-        await seed_demo(db)
+        logger.warning(
+            "MongoDB not ready yet (%s) — serving healthchecks; retrying in background. "
+            "If this persists, check Atlas Network Access (allow 0.0.0.0/0) and MONGO_URL.",
+            e,
+        )
+
+    reconnect_task: asyncio.Task | None = None
+
+    async def _reconnect_loop():
+        attempt = 0
+        while not app.state.db_ready:
+            attempt += 1
+            try:
+                await _ready_db()
+                app.state.db_ready = True
+                logger.info("MongoDB ready (background attempt %s)", attempt)
+                return
+            except Exception as e:
+                logger.warning(
+                    "MongoDB retry %s failed: %s", attempt, e
+                )
+                await asyncio.sleep(min(2 ** min(attempt, 4), 20))
+
+    if not app.state.db_ready:
+        reconnect_task = asyncio.create_task(_reconnect_loop())
+
     logger.info(
-        "Startup complete · PORT=%s · CORS=%s",
+        "Startup complete · PORT=%s · db_ready=%s · CORS=%s",
         os.environ.get("PORT", "unset"),
+        app.state.db_ready,
         _cors_origins(),
     )
     yield
+    if reconnect_task and not reconnect_task.done():
+        reconnect_task.cancel()
+        try:
+            await reconnect_task
+        except asyncio.CancelledError:
+            pass
     client.close()
 
 
@@ -135,6 +164,7 @@ for r in (
     square_router,
     admin_router,
     settings_router,
+    drop_offs_router,
 ):
     app.include_router(r)
 
@@ -145,14 +175,10 @@ async def root():
 
 
 @app.get("/api/health")
+@app.get("/health")
 async def health():
-    """Railway healthcheck — confirms process is up; pings Mongo when available."""
-    db_ok = False
-    try:
-        client = getattr(app.state, "mongo_client", None)
-        if client is not None:
-            await client.admin.command("ping")
-            db_ok = True
-    except Exception:
-        db_ok = False
-    return {"ok": True, "db": db_ok}
+    """Liveness for Railway — always 200 once the process is listening."""
+    return {
+        "ok": True,
+        "db": bool(getattr(app.state, "db_ready", False)),
+    }

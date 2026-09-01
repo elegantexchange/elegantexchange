@@ -25,8 +25,13 @@ async def _bump(db, key: str, floor: int) -> int:
 
 
 async def next_consignor_id(db) -> str:
-    """Returns next 4-digit boutique consignor id (2XXX)."""
-    return str(await _bump(db, "consignor", 2000))
+    """Returns next 4-digit boutique consignor id (2XXX), skipping any that already exist."""
+    for _ in range(5000):
+        cid = str(await _bump(db, "consignor", 2000))
+        exists = await db.consignors.find_one({"consignor_id": cid}, {"_id": 1})
+        if not exists:
+            return cid
+    raise RuntimeError("Could not allocate a free consignor id")
 
 
 async def next_item_id(db, consignor_id: str) -> str:

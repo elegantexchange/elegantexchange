@@ -184,6 +184,16 @@ class ScanAssistResult(BaseModel):
     notes: Optional[str] = ""
 
 
+# ----- Drop-offs -----
+class DropOffCreate(BaseModel):
+    consignor_id: str
+    signed_at: Optional[str] = None
+
+
+class DropOffAssess(BaseModel):
+    items: List[dict]
+
+
 # ----- Sales -----
 class SaleCreate(BaseModel):
     item_id: str
