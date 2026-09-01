@@ -4,6 +4,7 @@ from datetime import datetime, timezone, date, timedelta
 import uuid
 
 from auth import get_current_user
+from floor_operator import operator_from_request
 from boutique_settings import current_consignor_split_pct
 from id_gen import next_item_id
 from models import DropOffCreate, DropOffAssess
@@ -72,6 +73,7 @@ async def create_drop_off(
         "assessed_at": None,
         "item_ids": [],
         "created_by": _u.get("email") or "",
+        "operator_name": operator_from_request(request),
     }
     await db.drop_offs.insert_one(doc)
     doc.pop("_id", None)
@@ -175,6 +177,7 @@ async def assess_drop_off(
                 "assessed_at": now,
                 "item_ids": item_ids,
                 "assessed_by": _u.get("email") or "",
+                "assessed_by_operator": operator_from_request(request),
             }
         },
     )

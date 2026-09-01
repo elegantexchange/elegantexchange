@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useState } from "react";
 import "@/App.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
@@ -18,7 +19,14 @@ import TagPrint from "@/pages/TagPrint";
 import DropOffClient from "@/pages/DropOffClient";
 import DropOffAssess from "@/pages/DropOffAssess";
 import DropOffTypeformConcepts from "@/pages/DropOffTypeformConcepts";
+import OperatorPickerLab from "@/pages/OperatorPickerLab";
+import OperatorRollCall from "@/components/OperatorRollCall";
 import { hasRole, needsOnboarding } from "@/lib/auth";
+import {
+  needsOperatorPick,
+  readOperator,
+  writeOperator,
+} from "@/lib/operator";
 
 function RoleGate({ roles, children }) {
   const { user } = useAuth();
@@ -43,6 +51,7 @@ function OnboardingRoute({ preview = false }) {
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
+  const [operator, setOperator] = useState(() => readOperator());
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-neutral-500 text-sm">
@@ -52,6 +61,16 @@ function RequireAuth({ children }) {
   }
   if (!user) return <Navigate to="/login" replace />;
   if (needsOnboarding(user)) return <Navigate to="/onboarding" replace />;
+  if (needsOperatorPick(user) && !operator) {
+    return (
+      <OperatorRollCall
+        onSelect={(person) => {
+          writeOperator(person);
+          setOperator(person);
+        }}
+      />
+    );
+  }
   return children;
 }
 
@@ -70,6 +89,7 @@ function App() {
               path="/drop-off-concepts"
               element={<DropOffTypeformConcepts />}
             />
+            <Route path="/operator-concepts" element={<OperatorPickerLab />} />
             <Route path="/onboarding" element={<OnboardingRoute />} />
             <Route
               path="/onboarding-preview"

@@ -44,6 +44,9 @@ dist
 # Local-only UI mock dataset + concept playgrounds (not for production)
 frontend/src/lib/uiOnlyMock.js
 frontend/src/pages/*Concepts.jsx
+# Lab / routed concept pages must be tracked for Vercel builds
+!frontend/src/pages/DropOffTypeformConcepts.jsx
+# OperatorPickerLab.jsx is not matched by *Concepts.jsx (name ends in Lab)
 
 # Logs and debug files
 npm-debug.log*

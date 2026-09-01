@@ -4,10 +4,20 @@ from datetime import datetime, timezone, date
 import uuid
 
 from models import SaleCreate
-from auth import get_current_user, require_roles
+from auth import get_current_user, normalize_role, require_roles
 from boutique_settings import resolve_consignor_split_pct, split_sale_amount
+from floor_operator import operator_from_request
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
+
+_RETAIL_HIDDEN = (
+    "store_cut",
+    "consignor_cut",
+    "consignor_split_pct",
+    "payout_status",
+    "payout_date",
+    "payout_method",
+)
 
 
 @router.get("")
@@ -27,11 +37,15 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
             "description": i.get("description", ""),
             "media": media,
         }
+    retail = normalize_role(_u.get("role")) == "retail"
     for s in sales:
         info = imap.get(s["item_id"]) or {}
         s["consignor_name"] = cmap.get(s["consignor_id"], "")
         s["description"] = info.get("description", "")
         s["media"] = list(info.get("media") or [])
+        if retail:
+            for key in _RETAIL_HIDDEN:
+                s.pop(key, None)
     return sales
 
 
@@ -65,6 +79,8 @@ async def create_sale(
         "payout_method": None,
         "notes": body.notes or "",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "operator_name": operator_from_request(request),
+        "created_by": _u.get("email") or "",
     }
     await db.sales.insert_one(doc)
     await db.inventory.update_one(
@@ -72,6 +88,9 @@ async def create_sale(
         {"$set": {"status": "Sold", "date_sold": sale_date, "sale_price": sale_price}},
     )
     doc.pop("_id", None)
+    if normalize_role(_u.get("role")) == "retail":
+        for key in _RETAIL_HIDDEN:
+            doc.pop(key, None)
     return doc
 
 

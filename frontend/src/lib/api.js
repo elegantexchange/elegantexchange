@@ -1,5 +1,6 @@
 import axios from "axios";
 import { isUiOnly } from "@/lib/auth";
+import { readOperator } from "@/lib/operator";
 
 const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
 export const API_BASE = BACKEND_URL ? `${BACKEND_URL}/api` : "";
@@ -14,6 +15,10 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem("ee_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const op = readOperator();
+  if (op?.name) {
+    config.headers["X-EE-Operator"] = op.name;
   }
   // Local-only mock dataset (frontend/src/lib/uiOnlyMock.js — gitignored)
   if (isUiOnly) {

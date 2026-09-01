@@ -20,6 +20,7 @@ from auth import get_current_user, normalize_role, require_roles
 from id_gen import next_item_id
 from boutique_settings import current_consignor_split_pct
 from categorize import capitalize_description, infer_category
+from floor_operator import operator_from_request
 from csv_import_utils import (
     cell,
     map_headers,
@@ -364,6 +365,8 @@ async def create_item(
         "media": _normalize_media(body.media or []),
         "consignor_split_pct": split_pct,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "operator_name": operator_from_request(request),
+        "created_by": _u.get("email") or "",
     }
     await db.inventory.insert_one(doc)
     doc.pop("_id", None)
@@ -406,6 +409,8 @@ async def create_items_batch(
             "media": list(raw.get("media") or []),
             "consignor_split_pct": split_pct,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "operator_name": operator_from_request(request),
+            "created_by": _u.get("email") or "",
         }
         await db.inventory.insert_one(doc)
         doc.pop("_id", None)

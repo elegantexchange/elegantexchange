@@ -10,6 +10,12 @@ import { Toaster } from "@/components/ui/sonner";
 import { needsOnboarding } from "@/lib/auth";
 import ProductTour from "@/components/ProductTour";
 import WelcomeSplash from "@/components/WelcomeSplash";
+import OperatorRollCall from "@/components/OperatorRollCall";
+import {
+  needsOperatorPick,
+  readOperator,
+  writeOperator,
+} from "@/lib/operator";
 
 function ShellChrome() {
   const { sidebarOpen, setSidebarOpen } = useShell();
@@ -48,7 +54,12 @@ export default function Layout() {
   const { user, loading } = useAuth();
   const location = useLocation();
   const [greeted, setGreeted] = useState(false);
+  const [operator, setOperator] = useState(() => readOperator());
   const finishGreeting = useCallback(() => setGreeted(true), []);
+  const onOperatorSelect = useCallback((person) => {
+    writeOperator(person);
+    setOperator(person);
+  }, []);
 
   if (!loading && !user) return <Navigate to="/login" replace />;
   if (user && needsOnboarding(user) && location.pathname !== "/onboarding") {
@@ -64,6 +75,9 @@ export default function Layout() {
     );
   }
   if (!user) return null;
+  if (needsOperatorPick(user) && !operator) {
+    return <OperatorRollCall onSelect={onOperatorSelect} />;
+  }
   return (
     <ShellProvider>
       <TourProvider>

@@ -8,6 +8,7 @@ import {
   MOCK_OWNER,
   ROLE_PREVIEW_PERSONAS,
 } from "@/lib/auth";
+import { clearOperator } from "@/lib/operator";
 
 const AuthContext = createContext(null);
 const PREVIEW_KEY = "ee_role_preview";
@@ -101,6 +102,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     setPreview(null);
     clearPendingGuide();
+    clearOperator();
     try {
       sessionStorage.removeItem(PREVIEW_KEY);
     } catch {

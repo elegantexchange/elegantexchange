@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Compass, LogOut, PanelLeftClose } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -7,12 +8,22 @@ import { STORE } from "@/lib/brand";
 import { NAV_SECTIONS } from "@/constants/nav";
 import { hasRole, roleOf } from "@/lib/auth";
 import RolePreviewMenu from "@/components/RolePreviewMenu";
+import OperatorRollCall from "@/components/OperatorRollCall";
+import {
+  clearOperator,
+  needsOperatorPick,
+  readOperator,
+  writeOperator,
+} from "@/lib/operator";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const { sidebarOpen, setSidebarOpen } = useShell();
   const { startTour } = useTour();
   const nav = useNavigate();
+  const [operator, setOperator] = useState(() => readOperator());
+  const [switching, setSwitching] = useState(false);
+  const showOperator = needsOperatorPick(user);
 
   const sections = NAV_SECTIONS.map((section) => ({
     ...section,
@@ -22,6 +33,16 @@ export default function Sidebar() {
   if (!sidebarOpen) return null;
 
   return (
+    <>
+    {switching ? (
+      <OperatorRollCall
+        onSelect={(person) => {
+          writeOperator(person);
+          setOperator(person);
+          setSwitching(false);
+        }}
+      />
+    ) : null}
     <aside
       data-testid="sidebar"
       className="hidden md:flex flex-col w-[244px] shrink-0 h-[calc(100vh-0.25rem)] sticky top-0.5 overflow-hidden bg-[var(--ee-panel)] rounded-[11px] border border-[var(--ee-sidebar-border)]"
@@ -106,8 +127,24 @@ export default function Sidebar() {
             {STORE.name}
           </div>
           <div className="text-[11px] text-neutral-500 truncate leading-[1.25] mt-0.5">
-            {user?.name || "Boutique"}
+            {showOperator && operator
+              ? operator.name
+              : user?.name || "Boutique"}
           </div>
+          {showOperator && operator ? (
+            <button
+              type="button"
+              data-testid="operator-switch-btn"
+              onClick={() => {
+                clearOperator();
+                setOperator(null);
+                setSwitching(true);
+              }}
+              className="mt-1 text-[11px] font-medium text-[var(--ee-magenta)] hover:underline"
+            >
+              Switch
+            </button>
+          ) : null}
           <RolePreviewMenu />
         </div>
         <button
@@ -123,5 +160,6 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

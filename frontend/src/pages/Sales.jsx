@@ -309,6 +309,7 @@ export default function Sales() {
                         </div>
                         <div className="text-[10px] text-neutral-500 truncate mt-0.5">
                           {fmtDate(s.sale_date)} · {s.consignor_name || s.consignor_id}
+                          {s.operator_name ? ` · Logged by ${s.operator_name}` : ""}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -420,6 +421,9 @@ export default function Sales() {
                       ],
                       ["Sale price", fmtMoney(focused.sale_price)],
                       ["Sold", fmtDate(focused.sale_date)],
+                      ...(focused.operator_name
+                        ? [["Logged by", focused.operator_name]]
+                        : []),
                     ]
                   : [
                       [
@@ -443,6 +447,9 @@ export default function Sales() {
                           : "Legacy 50%",
                       ],
                       ["Payout", focused.payout_status],
+                      ...(focused.operator_name
+                        ? [["Logged by", focused.operator_name]]
+                        : []),
                       ["Notes", focused.notes || "—"],
                     ]
                 ).map(([label, value]) => (
