@@ -485,7 +485,10 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                         "payout_date": None,
                         "payout_method": None,
                         "notes": f"Square sync · order {order_id}",
+                        "source": "square",
                         "created_at": datetime.now(timezone.utc).isoformat(),
+                        "operator_name": "",
+                        "created_by": "square_sync",
                     }
                     await db.sales.insert_one(sale_doc)
                     await db.inventory.update_one(

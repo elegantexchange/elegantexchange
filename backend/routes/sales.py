@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from models import SaleCreate
 from auth import get_current_user, normalize_role, require_roles
 from floor_operator import operator_from_request
-from sale_ops import insert_sale
+from sale_ops import insert_sale, real_sales_mongo_filter, resolve_sale_source
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -21,7 +21,12 @@ _RETAIL_HIDDEN = (
 @router.get("")
 async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
     db = request.app.state.db
-    sales = await db.sales.find({}, {"_id": 0}).sort("sale_date", -1).to_list(10000)
+    # Floor + Square sales only — expired-floor / opening-balance owed stay on Payouts
+    sales = (
+        await db.sales.find(real_sales_mongo_filter(), {"_id": 0})
+        .sort("sale_date", -1)
+        .to_list(10000)
+    )
     # Attach consignor + item info
     cids = list({s["consignor_id"] for s in sales if s.get("consignor_id")})
     cmap = {}
@@ -51,7 +56,7 @@ async def list_sales(request: Request, _u: dict = Depends(get_current_user)):
             s.setdefault("is_house", False)
         s["description"] = info.get("description", "")
         s["media"] = list(info.get("media") or [])
-        s["source"] = "square" if s.get("square_transaction_id") else "manual"
+        s["source"] = resolve_sale_source(s)
         if retail:
             for key in _RETAIL_HIDDEN:
                 s.pop(key, None)

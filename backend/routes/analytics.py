@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from auth import require_roles
+from sale_ops import real_sales_mongo_filter
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -27,7 +28,11 @@ async def get_analytics(
 ):
     db = request.app.state.db
     start = _range_start(period)
-    sales_q = {} if start is None else {"sale_date": {"$gte": start}}
+    real_q = real_sales_mongo_filter()
+    if start is None:
+        sales_q = real_q
+    else:
+        sales_q = {"$and": [real_q, {"sale_date": {"$gte": start}}]}
     sales = await db.sales.find(sales_q, {"_id": 0}).to_list(50000)
 
     total_sales = sum(s["sale_price"] for s in sales)

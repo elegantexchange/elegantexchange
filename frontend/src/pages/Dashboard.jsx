@@ -211,7 +211,7 @@ export default function Dashboard() {
               )}
             </div>
             <p className="mt-2 text-sm text-neutral-500">
-              Square + manual · boutique floor
+              Square charges + logged sales
             </p>
           </div>
 

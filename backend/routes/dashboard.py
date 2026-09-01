@@ -4,7 +4,11 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from auth import get_current_user
-from sale_ops import backfill_expired_floor_sales, scrub_donated_returned_pendings
+from sale_ops import (
+    backfill_expired_floor_sales,
+    real_sales_mongo_filter,
+    scrub_donated_returned_pendings,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -31,11 +35,16 @@ async def dashboard(
     await scrub_donated_returned_pendings(db)
     await backfill_expired_floor_sales(db)
 
-    # Sales today
-    today_sales_cursor = db.sales.find({"sale_date": today.isoformat()}, {"_id": 0})
+    real_q = real_sales_mongo_filter()
+
+    # Sales today = Square + floor-logged only (not expired-floor owed)
+    today_sales_cursor = db.sales.find(
+        {"$and": [real_q, {"sale_date": today.isoformat()}]},
+        {"_id": 0},
+    )
     sales_today_total = 0.0
     async for s in today_sales_cursor:
-        sales_today_total += s["sale_price"]
+        sales_today_total += float(s.get("sale_price") or 0)
 
     # Active items
     active_items = await db.inventory.count_documents({"status": "Active"})
@@ -123,11 +132,12 @@ async def dashboard(
         item["consignor_name"] = house_display_name(item, c, fallback="")
         expired.append(item)
 
-    # Sales trend
+    # Sales trend — real sales only
     days = 7 if period == "week" else (30 if period == "month" else 90)
     start_iso = (today - timedelta(days=days * 2 - 1)).isoformat()
     trend_sales = await db.sales.find(
-        {"sale_date": {"$gte": start_iso}}, {"_id": 0, "sale_date": 1, "sale_price": 1}
+        {"$and": [real_q, {"sale_date": {"$gte": start_iso}}]},
+        {"_id": 0, "sale_date": 1, "sale_price": 1},
     ).to_list(50000)
     by_day = defaultdict(float)
     for s in trend_sales:
@@ -145,7 +155,8 @@ async def dashboard(
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     activity = []
     async for s in db.sales.find(
-        {"sale_date": {"$gte": week_start}}, {"_id": 0}
+        {"$and": [real_q, {"sale_date": {"$gte": week_start}}]},
+        {"_id": 0},
     ).sort("created_at", -1).limit(20):
         c = await db.consignors.find_one({"consignor_id": s["consignor_id"]}, {"_id": 0})
         activity.append(

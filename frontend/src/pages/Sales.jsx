@@ -271,6 +271,7 @@ export default function Sales() {
               total
               {showFinance ? ` · ${fmtMoney(totalStore)} store` : ""} · {filtered.length}{" "}
               shown
+              <span className="text-neutral-400"> · Square + logged</span>
             </p>
           </div>
           <div className="ee-page-actions shrink-0">

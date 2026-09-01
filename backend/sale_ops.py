@@ -4,6 +4,74 @@ import uuid
 
 from boutique_settings import resolve_consignor_split_pct, split_sale_amount
 
+# Pending rows that track money owed — not boutique floor / Square sales.
+LIABILITY_SOURCES = frozenset(
+    {
+        "expired_floor",
+        "import_opening_balance",
+        "opening_balance",
+    }
+)
+LIABILITY_CREATED_BY = frozenset(
+    {
+        "expired_backfill",
+        "hygiene",
+        "import",
+    }
+)
+
+
+def is_liability_sale(doc: dict | None) -> bool:
+    """True for owed/backfill rows that must not appear as Sales."""
+    if not doc:
+        return False
+    src = (doc.get("source") or "").strip()
+    if src in LIABILITY_SOURCES:
+        return True
+    if (doc.get("created_by") or "").strip() in LIABILITY_CREATED_BY:
+        return True
+    notes = doc.get("notes") or ""
+    if notes.startswith("Expired floor"):
+        return True
+    if notes.startswith("Backfill from imported sold"):
+        return True
+    if notes.startswith("Imported opening balance"):
+        return True
+    item_id = doc.get("item_id") or ""
+    if item_id.startswith("OPENING-"):
+        return True
+    return False
+
+
+def real_sales_mongo_filter() -> dict:
+    """Mongo filter: Square + floor-logged sales only (excludes payout liabilities)."""
+    return {
+        "$and": [
+            {"source": {"$nin": list(LIABILITY_SOURCES)}},
+            {"created_by": {"$nin": list(LIABILITY_CREATED_BY)}},
+            {
+                "notes": {
+                    "$not": {
+                        "$regex": r"^(Expired floor|Backfill from imported sold|Imported opening balance)"
+                    }
+                }
+            },
+            {"item_id": {"$not": {"$regex": r"^OPENING-"}}},
+        ]
+    }
+
+
+def resolve_sale_source(doc: dict) -> str:
+    """UI/API source label without wiping liability provenance."""
+    raw = (doc.get("source") or "").strip()
+    if raw in LIABILITY_SOURCES:
+        return raw
+    if doc.get("square_transaction_id"):
+        return "square"
+    if raw in ("manual", "square", "square_unmatched"):
+        return raw
+    return raw or "manual"
+
 
 async def insert_pending_sale(
     db,
@@ -71,6 +139,7 @@ async def insert_sale(
     split_pct = resolve_consignor_split_pct(item, consignor)
     store_cut, consignor_cut = split_sale_amount(price, split_pct)
     sale_date = sale_date or date.today().isoformat()
+    source = "square" if square_transaction_id else "manual"
     doc = {
         "id": str(uuid.uuid4()),
         "sale_date": sale_date,
@@ -85,6 +154,7 @@ async def insert_sale(
         "payout_date": None,
         "payout_method": None,
         "notes": notes or "",
+        "source": source,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "operator_name": operator_name or "",
         "created_by": created_by or "",
