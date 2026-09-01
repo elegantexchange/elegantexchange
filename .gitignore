@@ -42,7 +42,8 @@ dist
 *credentials.json*
 
 # Local-only UI mock dataset + concept playgrounds (not for production)
-frontend/src/lib/uiOnlyMock.js
+# Stub uiOnlyMock.js is tracked so Vercel can resolve the import; full data stays local.
+frontend/src/lib/uiOnlyMock.local.js
 frontend/src/pages/*Concepts.jsx
 # Lab / routed concept pages must be tracked for Vercel builds
 !frontend/src/pages/DropOffTypeformConcepts.jsx
