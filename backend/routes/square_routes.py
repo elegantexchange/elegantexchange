@@ -12,7 +12,12 @@ from auth import get_current_user, normalize_role, require_roles
 from boutique_settings import resolve_consignor_split_pct, split_sale_amount
 from floor_operator import operator_from_request
 from models import SquareChargeComplete, SquareChargeCreate
-from sale_ops import insert_sale
+from sale_ops import (
+    attach_square_transaction,
+    clear_liability_sales_for_item,
+    find_real_sale_for_item,
+    insert_sale,
+)
 
 router = APIRouter(prefix="/api/square", tags=["square"])
 
@@ -308,10 +313,52 @@ async def complete_charge(
     item = await db.inventory.find_one({"item_id": pending["item_id"]})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if item.get("status") != "Active":
+
+    # Floor already logged this piece — just attach the Square txn
+    existing_item_sale = await find_real_sale_for_item(db, pending["item_id"])
+    if existing_item_sale:
+        doc = await attach_square_transaction(
+            db,
+            existing_item_sale,
+            square_transaction_id=tx_id,
+            sale_amount=pending.get("sale_price"),
+            note="Square charge",
+        )
+        await db.pending_square_charges.update_one(
+            {"id": body.state},
+            {
+                "$set": {
+                    "status": "completed",
+                    "sale_id": doc["id"],
+                    "square_transaction_id": tx_id,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+        await db.square_sync_log.update_one(
+            {"transaction_id": tx_id},
+            {
+                "$set": {
+                    "transaction_id": tx_id,
+                    "matched_item_id": pending["item_id"],
+                    "status": "matched",
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                    "sale_amount": pending["sale_price"],
+                    "note": pending.get("pos_notes") or pending["item_id"],
+                    "source": "pos_charge",
+                }
+            },
+            upsert=True,
+        )
+        if normalize_role(user.get("role")) == "retail":
+            for key in _RETAIL_HIDDEN:
+                doc.pop(key, None)
+        return {"ok": True, "sale": doc, "idempotent": True, "linked": True}
+
+    if item.get("status") not in ("Active", "Expired"):
         raise HTTPException(
             status_code=400,
-            detail="Item is no longer Active — sale may already be recorded",
+            detail="Item is no longer on the floor — sale may already be recorded",
         )
 
     sale_notes = pending.get("notes") or ""
@@ -432,6 +479,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                 continue
 
             # Match boutique item ids: 2001-01, bare consignor 2001, or legacy EE-####
+            # Include Sold so a floor-logged sale can be linked (not duplicated)
             matched_item_id = None
             candidates = re.findall(r"(?:EE-)?\d{4}(?:-\d{2})?", note)
             for candidate in candidates:
@@ -441,7 +489,7 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                         "item_id": {
                             "$in": [bare, candidate, f"EE-{bare.split('-')[0]}"]
                         },
-                        "status": {"$in": ["Active", "Expired"]},
+                        "status": {"$in": ["Active", "Expired", "Sold"]},
                     }
                 )
                 if not item and "-" not in bare:
@@ -458,7 +506,20 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                     break
             if matched_item_id:
                 item = await db.inventory.find_one({"item_id": matched_item_id})
-                if item and item.get("status") in ("Active", "Expired"):
+                sale_date = (
+                    (p.get("created_at") or "")[:10] or date.today().isoformat()
+                )
+                existing_item_sale = await find_real_sale_for_item(db, matched_item_id)
+                if existing_item_sale:
+                    # Floor (or prior sync) already logged this piece — link only
+                    await attach_square_transaction(
+                        db,
+                        existing_item_sale,
+                        square_transaction_id=tx_id,
+                        sale_amount=float(amount),
+                        note=f"Square sync · order {order_id}",
+                    )
+                elif item and item.get("status") in ("Active", "Expired"):
                     sale_price = float(amount)
                     consignor = await db.consignors.find_one(
                         {"consignor_id": item["consignor_id"]}, {"_id": 0}
@@ -466,10 +527,6 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                     split_pct = resolve_consignor_split_pct(item, consignor)
                     store_cut, consignor_cut = split_sale_amount(
                         sale_price, split_pct
-                    )
-                    sale_date = (
-                        (p.get("created_at") or "")[:10]
-                        or date.today().isoformat()
                     )
                     sale_doc = {
                         "id": str(uuid.uuid4()),
@@ -501,6 +558,25 @@ async def sync(request: Request, _u: dict = Depends(require_roles("admin", "mana
                             }
                         },
                     )
+                    await clear_liability_sales_for_item(db, matched_item_id)
+                else:
+                    # Matched id but nothing to attach or create
+                    await db.square_sync_log.update_one(
+                        {"transaction_id": tx_id},
+                        {
+                            "$set": {
+                                "transaction_id": tx_id,
+                                "status": "unmatched",
+                                "synced_at": datetime.now(timezone.utc).isoformat(),
+                                "sale_amount": amount,
+                                "note": note,
+                            }
+                        },
+                        upsert=True,
+                    )
+                    unmatched += 1
+                    continue
+
                 await db.square_sync_log.update_one(
                     {"transaction_id": tx_id},
                     {

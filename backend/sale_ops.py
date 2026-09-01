@@ -73,6 +73,84 @@ def resolve_sale_source(doc: dict) -> str:
     return raw or "manual"
 
 
+async def find_real_sale_for_item(db, item_id: str) -> dict | None:
+    """Most recent Square/manual sale for an item (ignores payout liabilities)."""
+    if not item_id:
+        return None
+    async for s in db.sales.find({"item_id": item_id}, {"_id": 0}).sort(
+        "created_at", -1
+    ):
+        if not is_liability_sale(s):
+            return s
+    return None
+
+
+async def clear_liability_sales_for_item(db, item_id: str) -> int:
+    """Drop expired-floor / opening owed rows once a real sale exists for the piece."""
+    if not item_id:
+        return 0
+    result = await db.sales.delete_many(
+        {
+            "item_id": item_id,
+            "payout_status": "Pending",
+            "$or": [
+                {"source": {"$in": list(LIABILITY_SOURCES)}},
+                {"created_by": {"$in": list(LIABILITY_CREATED_BY)}},
+                {
+                    "notes": {
+                        "$regex": r"^(Expired floor|Backfill from imported sold|Imported opening balance)"
+                    }
+                },
+            ],
+        }
+    )
+    return int(result.deleted_count or 0)
+
+
+async def attach_square_transaction(
+    db,
+    sale: dict,
+    *,
+    square_transaction_id: str,
+    sale_amount: float | None = None,
+    note: str = "",
+) -> dict:
+    """Link a Square payment to an existing floor-logged sale — no second row."""
+    tx_id = (square_transaction_id or "").strip()
+    if not tx_id or not sale:
+        return sale
+    updates = {
+        "square_transaction_id": tx_id,
+        "source": "square",
+    }
+    notes = (sale.get("notes") or "").strip()
+    if note and "Square" not in notes:
+        updates["notes"] = f"{notes} · {note}".strip(" ·") if notes else note
+    elif not notes and note:
+        updates["notes"] = note
+    # Keep floor-logged price unless the sale had no price
+    if sale_amount is not None and float(sale.get("sale_price") or 0) <= 0:
+        price = float(sale_amount)
+        consignor = await db.consignors.find_one(
+            {"consignor_id": sale.get("consignor_id")}, {"_id": 0}
+        )
+        item = await db.inventory.find_one({"item_id": sale.get("item_id")}, {"_id": 0})
+        split_pct = resolve_consignor_split_pct(item or {}, consignor)
+        store_cut, consignor_cut = split_sale_amount(price, split_pct)
+        updates.update(
+            {
+                "sale_price": price,
+                "store_cut": store_cut,
+                "consignor_cut": consignor_cut,
+                "consignor_split_pct": split_pct,
+            }
+        )
+    await db.sales.update_one({"id": sale["id"]}, {"$set": updates})
+    sale = {**sale, **updates}
+    await clear_liability_sales_for_item(db, sale.get("item_id") or "")
+    return sale
+
+
 async def insert_pending_sale(
     db,
     *,
@@ -132,6 +210,28 @@ async def insert_sale(
     created_by: str = "",
     sale_date: str | None = None,
 ) -> dict:
+    item_id = item["item_id"]
+    tx_id = (square_transaction_id or "").strip() or None
+
+    # Same Square txn already recorded
+    if tx_id:
+        by_tx = await db.sales.find_one({"square_transaction_id": tx_id}, {"_id": 0})
+        if by_tx and not is_liability_sale(by_tx):
+            return by_tx
+
+    # Floor already logged this piece — attach Square id instead of duplicating
+    existing = await find_real_sale_for_item(db, item_id)
+    if existing:
+        if tx_id and not existing.get("square_transaction_id"):
+            return await attach_square_transaction(
+                db,
+                existing,
+                square_transaction_id=tx_id,
+                sale_amount=float(sale_price),
+                note=notes or "Square charge",
+            )
+        return existing
+
     consignor = await db.consignors.find_one(
         {"consignor_id": item["consignor_id"]}, {"_id": 0}
     )
@@ -139,17 +239,17 @@ async def insert_sale(
     split_pct = resolve_consignor_split_pct(item, consignor)
     store_cut, consignor_cut = split_sale_amount(price, split_pct)
     sale_date = sale_date or date.today().isoformat()
-    source = "square" if square_transaction_id else "manual"
+    source = "square" if tx_id else "manual"
     doc = {
         "id": str(uuid.uuid4()),
         "sale_date": sale_date,
-        "item_id": item["item_id"],
+        "item_id": item_id,
         "consignor_id": item["consignor_id"],
         "sale_price": price,
         "store_cut": store_cut,
         "consignor_cut": consignor_cut,
         "consignor_split_pct": split_pct,
-        "square_transaction_id": square_transaction_id,
+        "square_transaction_id": tx_id,
         "payout_status": "Pending",
         "payout_date": None,
         "payout_method": None,
@@ -161,9 +261,10 @@ async def insert_sale(
     }
     await db.sales.insert_one(doc)
     await db.inventory.update_one(
-        {"item_id": item["item_id"]},
+        {"item_id": item_id},
         {"$set": {"status": "Sold", "date_sold": sale_date, "sale_price": price}},
     )
+    await clear_liability_sales_for_item(db, item_id)
     doc.pop("_id", None)
     return doc
 

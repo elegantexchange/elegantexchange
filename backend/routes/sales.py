@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from models import SaleCreate
 from auth import get_current_user, normalize_role, require_roles
 from floor_operator import operator_from_request
-from sale_ops import insert_sale, real_sales_mongo_filter, resolve_sale_source
+from sale_ops import (
+    find_real_sale_for_item,
+    insert_sale,
+    real_sales_mongo_filter,
+    resolve_sale_source,
+)
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -118,6 +123,12 @@ async def create_sale(
     # Expired pieces are still on the floor until sold / donated / returned
     if item.get("status") not in ("Active", "Expired"):
         raise HTTPException(status_code=400, detail="Item is not on the floor")
+    existing = await find_real_sale_for_item(db, body.item_id)
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sale already logged for {body.item_id} — open Sales to review",
+        )
     doc = await insert_sale(
         db,
         item=item,
