@@ -3,6 +3,24 @@ import { useParams, useNavigate } from "react-router-dom";
 import { api, fmtMoney, fmtDate, fmtPhone, formatApiError } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tabs,
   TabsList,
@@ -11,10 +29,12 @@ import {
 } from "@/components/ui/tabs";
 import StatusPill from "@/components/StatusPill";
 import IntakeDialog from "@/components/IntakeDialog";
-import { ArrowLeft, Plus, FileText, Mail, Phone, MapPin, Download, Flag } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, FileText, Mail, Phone, MapPin, Download, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { isManagerOrAdmin, roleOf } from "@/lib/auth";
+import { isAdmin, isManagerOrAdmin, roleOf } from "@/lib/auth";
+
+const EDIT_PAYOUT_METHODS = ["Cash", "Check", "Zelle", "Venmo", "Store Credit", "Square"];
 
 const FLAG_LABELS = {
   missing_name: "Missing name",
@@ -29,8 +49,10 @@ export default function ConsignorDetail() {
   const { user } = useAuth();
   const retailView = roleOf(user) === "retail";
   const showFinance = isManagerOrAdmin(user);
+  const canEdit = isAdmin(user);
   const [data, setData] = useState(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(
     () => api.get(`/consignors/${id}`).then((r) => setData(r.data)),
@@ -68,14 +90,28 @@ export default function ConsignorDetail() {
         subtitle={`Consignor ${data.consignor_id}`}
         testid="consignor-detail-title"
         actions={
-          <Button
-            data-testid="consignor-detail-intake"
-            className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-            onClick={() => setIntakeOpen(true)}
-          >
-            <Plus size={14} className="md:mr-1" />
-            <span className="hidden md:inline">New Drop Off</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            {canEdit ? (
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="consignor-edit-btn"
+                className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                onClick={() => setEditOpen(true)}
+              >
+                <Pencil size={14} className="md:mr-1" />
+                <span className="hidden md:inline">Edit</span>
+              </Button>
+            ) : null}
+            <Button
+              data-testid="consignor-detail-intake"
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              onClick={() => setIntakeOpen(true)}
+            >
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden md:inline">New Drop Off</span>
+            </Button>
+          </div>
         }
       />
 
@@ -384,6 +420,248 @@ export default function ConsignorDetail() {
         onDone={() => load()}
         presetConsignorId={id}
       />
+      {canEdit ? (
+        <EditConsignorDialog
+          open={editOpen}
+          consignor={data}
+          onOpenChange={setEditOpen}
+          onSaved={(nextId) => {
+            if (nextId && nextId !== id) {
+              nav(`/consignors/${nextId}`, { replace: true });
+              return;
+            }
+            load();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function draftFromConsignor(consignor) {
+  return {
+    consignor_id: consignor?.consignor_id || "",
+    full_name: consignor?.full_name || "",
+    phone: consignor?.phone || "",
+    email: consignor?.email || "",
+    address: consignor?.address || "",
+    payout_method: consignor?.payout_method || "Cash",
+    payout_details: consignor?.payout_details || "",
+    expiry_action: consignor?.expiry_action || "",
+    date_of_drop_off: consignor?.date_of_drop_off || "",
+    notes: consignor?.notes || "",
+  };
+}
+
+function EditConsignorDialog({ open, consignor, onOpenChange, onSaved }) {
+  const [form, setForm] = useState(draftFromConsignor(consignor));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(draftFromConsignor(consignor));
+  }, [open, consignor]);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    const full_name = form.full_name.trim();
+    const consignor_id = form.consignor_id.trim();
+    if (!/^\d{4}$/.test(consignor_id)) {
+      toast.error("Consignor ID should be 4 digits, like 2047");
+      return;
+    }
+    if (full_name.length < 2) {
+      toast.error("Enter a full name");
+      return;
+    }
+    const email = form.email.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Enter a valid email or leave it blank");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.patch(`/consignors/${consignor.consignor_id}`, {
+        consignor_id,
+        full_name,
+        phone: form.phone.trim(),
+        email,
+        address: form.address.trim(),
+        payout_method: form.payout_method,
+        payout_details: form.payout_details.trim(),
+        expiry_action: form.expiry_action.trim(),
+        date_of_drop_off: form.date_of_drop_off.trim(),
+        notes: form.notes.trim(),
+      });
+      toast.success("Consignor updated");
+      onOpenChange(false);
+      onSaved(data.consignor_id);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="edit-consignor-dialog" className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit consignor</DialogTitle>
+          <DialogDescription>
+            Update their ID and profile. Items and balances stay with them.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Consignor ID
+              </Label>
+              <Input
+                data-testid="edit-consignor-id"
+                value={form.consignor_id}
+                onChange={set("consignor_id")}
+                inputMode="numeric"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Full name
+              </Label>
+              <Input
+                data-testid="edit-consignor-name"
+                value={form.full_name}
+                onChange={set("full_name")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Phone
+              </Label>
+              <Input
+                data-testid="edit-consignor-phone"
+                value={form.phone}
+                onChange={set("phone")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Email
+              </Label>
+              <Input
+                data-testid="edit-consignor-email"
+                type="email"
+                value={form.email}
+                onChange={set("email")}
+                className="mt-1"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Address
+              </Label>
+              <Input
+                data-testid="edit-consignor-address"
+                value={form.address}
+                onChange={set("address")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Payout method
+              </Label>
+              <Select
+                value={form.payout_method}
+                onValueChange={(v) => setForm((f) => ({ ...f, payout_method: v }))}
+              >
+                <SelectTrigger data-testid="edit-consignor-payout" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EDIT_PAYOUT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Payout details
+              </Label>
+              <Input
+                data-testid="edit-consignor-payout-details"
+                value={form.payout_details}
+                onChange={set("payout_details")}
+                placeholder="Zelle or Venmo"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                When items expire
+              </Label>
+              <Input
+                data-testid="edit-consignor-expiry"
+                value={form.expiry_action}
+                onChange={set("expiry_action")}
+                placeholder="Donate or pick up"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Drop-off date
+              </Label>
+              <Input
+                data-testid="edit-consignor-dropoff"
+                value={form.date_of_drop_off}
+                onChange={set("date_of_drop_off")}
+                placeholder="YYYY-MM-DD"
+                className="mt-1"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Notes
+              </Label>
+              <Textarea
+                data-testid="edit-consignor-notes"
+                rows={2}
+                value={form.notes}
+                onChange={set("notes")}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              className="ee-btn-label text-neutral-600"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              data-testid="edit-consignor-save"
+              disabled={busy}
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            >
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -80,6 +80,7 @@ class ConsignorUpdate(BaseModel):
     expiry_action: Optional[str] = None
     date_of_drop_off: Optional[str] = None
     import_flags: Optional[List[str]] = None
+    consignor_id: Optional[str] = None  # reassign boutique ID; related items follow
 
 
 class ConsignorImportRowIssue(BaseModel):

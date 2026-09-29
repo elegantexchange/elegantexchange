@@ -686,41 +686,114 @@ async def get_consignor(
     return c
 
 
+_LINKED_COLLECTIONS = ("inventory", "sales", "payouts", "drop_offs")
+
+
+def _name_needs_review(name: str) -> bool:
+    n = (name or "").strip()
+    if len(n) < 2:
+        return True
+    return bool(
+        re.match(r"^\(name needed\b|^unassigned\b|^consignor\s+\d+", n, re.I)
+    )
+
+
+def _profile_flags(existing_flags: list, merged: dict, updates: dict) -> list[str]:
+    flags = [f for f in existing_flags if f != "missing_contact"]
+    if "full_name" in updates:
+        flags = [f for f in flags if f != "missing_name"]
+        if _name_needs_review(merged.get("full_name") or ""):
+            flags.append("missing_name")
+    email = (merged.get("email") or "").strip()
+    phone = (merged.get("phone") or "").strip()
+    if not email and not phone:
+        flags.append("missing_contact")
+    if "date_of_drop_off" in updates:
+        flags = [
+            f
+            for f in flags
+            if f not in ("missing_drop_off_date", "unparsed_drop_off_date")
+        ]
+        date_s = (merged.get("date_of_drop_off") or "").strip()
+        if not date_s:
+            flags.append("missing_drop_off_date")
+        elif not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_s):
+            flags.append("unparsed_drop_off_date")
+    if "import_flags" in updates:
+        supplied = [f for f in (updates["import_flags"] or []) if f != "missing_contact"]
+        if not email and not phone:
+            supplied.append("missing_contact")
+        flags = supplied
+    return flags
+
+
 @router.patch("/{consignor_id}")
 async def update_consignor(
     consignor_id: str,
     body: ConsignorUpdate,
     request: Request,
-    _u: dict = Depends(get_current_user),
+    _u: dict = Depends(require_roles("admin")),
 ):
     db = request.app.state.db
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
-        return {"ok": True}
+        return {"ok": True, "consignor_id": consignor_id}
 
     existing = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Not found")
 
-    merged = {**existing, **updates}
-    flags = list(merged.get("import_flags") or [])
-    # Keep non-contact flags; re-derive missing_contact from merged phone/email
-    flags = [f for f in flags if f != "missing_contact"]
-    email = (merged.get("email") or "").strip()
-    phone = (merged.get("phone") or "").strip()
-    if not email and not phone:
-        flags.append("missing_contact")
-    if "import_flags" in updates:
-        # Caller supplied flags — still enforce contact rule
-        supplied = [f for f in (updates["import_flags"] or []) if f != "missing_contact"]
-        if not email and not phone:
-            supplied.append("missing_contact")
-        flags = supplied
-    updates["import_flags"] = flags
-    updates["needs_review"] = bool(flags)
+    from house_stock import is_house_consignor, is_house_consignor_id
+
+    if is_house_consignor(existing):
+        raise HTTPException(status_code=400, detail="The house account can't be edited")
+
+    for key in ("full_name", "phone", "address", "payout_details", "notes", "expiry_action", "date_of_drop_off"):
+        if key in updates and isinstance(updates[key], str):
+            updates[key] = updates[key].strip()
+    if "email" in updates and isinstance(updates["email"], str):
+        updates["email"] = updates["email"].strip().lower()
+    if "full_name" in updates and len(updates["full_name"]) < 2:
+        raise HTTPException(status_code=400, detail="Enter a full name")
+    if "email" in updates and updates["email"]:
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", updates["email"]):
+            raise HTTPException(status_code=400, detail="Enter a valid email or leave it blank")
+    if "payout_method" in updates and updates["payout_method"] not in PAYOUT_METHODS:
+        raise HTTPException(status_code=400, detail="Choose a payout method")
+
+    new_id = consignor_id
+    if "consignor_id" in updates:
+        new_id = (updates["consignor_id"] or "").strip()
+        if not re.fullmatch(r"\d{4}", new_id):
+            raise HTTPException(
+                status_code=400, detail="Consignor ID should be 4 digits, like 2047"
+            )
+        if is_house_consignor_id(new_id):
+            raise HTTPException(status_code=400, detail="That ID is reserved")
+        if new_id != consignor_id:
+            taken = await db.consignors.find_one({"consignor_id": new_id}, {"_id": 1})
+            if taken:
+                raise HTTPException(
+                    status_code=400, detail=f"Consignor ID {new_id} is already in use"
+                )
+            for name in _LINKED_COLLECTIONS:
+                await db[name].update_many(
+                    {"consignor_id": consignor_id},
+                    {"$set": {"consignor_id": new_id}},
+                )
+        else:
+            updates.pop("consignor_id", None)
+
+    merged = {**existing, **updates, "consignor_id": new_id}
+    updates["import_flags"] = _profile_flags(
+        list(existing.get("import_flags") or []), merged, updates
+    )
+    updates["needs_review"] = bool(updates["import_flags"])
+    if new_id != consignor_id:
+        updates["consignor_id"] = new_id
 
     await db.consignors.update_one({"consignor_id": consignor_id}, {"$set": updates})
-    return {"ok": True}
+    return {"ok": True, "consignor_id": new_id}
 
 
 @router.delete("/{consignor_id}")
