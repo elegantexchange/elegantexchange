@@ -7,6 +7,8 @@ from typing import Callable, Iterable
 
 from fastapi import HTTPException, Request, Depends
 
+from floor_operator import apply_floor_role
+
 JWT_ALGORITHM = "HS256"
 
 ROLES = ("admin", "manager", "retail")
@@ -94,7 +96,7 @@ async def get_current_user(request: Request) -> dict:
     user.pop("_id", None)
     user.pop("password_hash", None)
     user["role"] = normalize_role(user.get("role"))
-    return user
+    return apply_floor_role(user, request)
 
 
 def has_role(user: dict, *roles: str) -> bool:

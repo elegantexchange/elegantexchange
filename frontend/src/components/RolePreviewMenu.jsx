@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   ROLE_LABELS,
   ROLE_PREVIEW_PERSONAS,
+  roleLabelFor,
   roleOf,
 } from "@/lib/auth";
 
@@ -38,7 +39,7 @@ export default function RolePreviewMenu({ className = "" }) {
 
   if (!user?.role) return null;
 
-  const label = ROLE_LABELS[roleOf(user)] || roleOf(user);
+  const label = roleLabelFor(user);
   const realName = sessionUser?.name || "Signed-in user";
 
   if (!canRolePreview) {

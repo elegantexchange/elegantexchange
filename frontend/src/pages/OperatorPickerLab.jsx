@@ -8,6 +8,7 @@ export const SHARED_OPERATORS = [
   { id: "johan", name: "Johan" },
   { id: "noah", name: "Noah" },
   { id: "zachary", name: "Zachary" },
+  { id: "intern", name: "Intern" },
 ];
 
 const SYSTEMS = [

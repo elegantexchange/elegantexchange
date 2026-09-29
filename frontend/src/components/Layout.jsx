@@ -80,7 +80,7 @@ export default function Layout() {
   if (!greeted && !needsOnboarding(user)) {
     const splashUser =
       needsOperatorPick(user) && operator
-        ? { ...user, name: operator.name }
+        ? { ...user, name: operator.givenName || operator.name }
         : user;
     return (
       <WelcomeSplash

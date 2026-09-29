@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, fmtDateTime, formatApiError, API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { ROLE_LABELS, roleOf, isAdmin } from "@/lib/auth";
+import { ROLE_LABELS, roleOf, roleLabelFor, isAdmin } from "@/lib/auth";
 import { needsOperatorPick, readOperator, displayNameFor } from "@/lib/operator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ export function MyAccountPanel({ compact = false }) {
   const { user, refresh } = useAuth();
   const sharedShop = needsOperatorPick(user);
   const presence = sharedShop ? readOperator() : null;
+  const intern = presence?.id === "intern";
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [password, setPassword] = useState("");
@@ -76,7 +77,7 @@ export function MyAccountPanel({ compact = false }) {
     <div className={compact ? "space-y-3" : "space-y-4"} data-testid="settings-account">
       <div className="flex items-center gap-2">
         <span className="text-[10px] tracking-[0.18em] uppercase font-semibold text-[var(--ee-magenta)]">
-          {ROLE_LABELS[roleOf(user)] || roleOf(user)}
+          {roleLabelFor(user)}
         </span>
       </div>
       <div>
@@ -110,39 +111,43 @@ export function MyAccountPanel({ compact = false }) {
           />
         )}
       </div>
-      <div>
-        <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">Phone</Label>
-        <Input
-          data-testid="settings-account-phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="mt-1"
-        />
-      </div>
-      <div>
-        <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-          New password
-        </Label>
-        <Input
-          data-testid="settings-account-password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="mt-1"
-          placeholder="Leave blank to keep current"
-          autoComplete="new-password"
-        />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          data-testid="settings-account-save"
-          disabled={busy}
-          onClick={save}
-          className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-        >
-          Save account
-        </Button>
-      </div>
+      {intern ? null : (
+        <>
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">Phone</Label>
+            <Input
+              data-testid="settings-account-phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+              New password
+            </Label>
+            <Input
+              data-testid="settings-account-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1"
+              placeholder="Leave blank to keep current"
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              data-testid="settings-account-save"
+              disabled={busy}
+              onClick={save}
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            >
+              Save account
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

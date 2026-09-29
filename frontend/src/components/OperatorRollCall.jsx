@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { SHARED_OPERATORS } from "@/lib/operator";
+import { useEffect, useRef, useState } from "react";
+import { normalizeGivenName, SHARED_OPERATORS } from "@/lib/operator";
 
 /**
  * Production picker — Glass presence (D5c).
@@ -8,6 +8,24 @@ import { SHARED_OPERATORS } from "@/lib/operator";
  */
 export default function OperatorRollCall({ onSelect, embedded = false }) {
   const [picked, setPicked] = useState(null);
+  const [given, setGiven] = useState("");
+  const nameRef = useRef(null);
+  const intern = picked?.id === "intern";
+  const givenName = intern ? normalizeGivenName(given) : "";
+
+  useEffect(() => {
+    if (intern) nameRef.current?.focus();
+  }, [intern]);
+
+  const confirm = () => {
+    if (!picked) return;
+    if (intern) {
+      if (!givenName) return;
+      onSelect({ ...picked, givenName });
+      return;
+    }
+    onSelect(picked);
+  };
 
   return (
     <div
@@ -77,15 +95,36 @@ export default function OperatorRollCall({ onSelect, embedded = false }) {
             );
           })}
         </ul>
-        <div
+        <form
           className="p-3.5 sm:p-5 pt-2 shrink-0"
           style={{ paddingBottom: "max(0.875rem, env(safe-area-inset-bottom))" }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            confirm();
+          }}
         >
+          {intern && (
+            <label className="block mb-3">
+              <span className="text-[10px] tracking-[0.2em] uppercase font-semibold text-[var(--ee-magenta)]">
+                First name
+              </span>
+              <input
+                ref={nameRef}
+                data-testid="operator-intern-name"
+                value={given}
+                onChange={(e) => setGiven(e.target.value)}
+                autoComplete="given-name"
+                enterKeyHint="done"
+                placeholder="Your first name"
+                className="mt-1.5 w-full rounded-[11px] sm:rounded-[12px] bg-white/80 px-3.5 sm:px-4 py-3.5 text-[16px] sm:text-[17px] font-medium tracking-[-0.01em] text-[var(--ee-ink)] placeholder:text-neutral-400 placeholder:font-light outline-none ring-1 ring-[var(--ee-magenta)]/30"
+                style={{ fontFamily: "Montserrat, system-ui, sans-serif" }}
+              />
+            </label>
+          )}
           <button
-            type="button"
+            type="submit"
             data-testid="operator-confirm-btn"
-            disabled={!picked}
-            onClick={() => picked && onSelect(picked)}
+            disabled={!picked || (intern && !givenName)}
             className="w-full py-3.5 rounded-[12px] text-[11px] font-semibold tracking-[0.1em] uppercase disabled:opacity-35 text-white transition-opacity"
             style={{
               background: "var(--ee-magenta)",
@@ -94,7 +133,7 @@ export default function OperatorRollCall({ onSelect, embedded = false }) {
           >
             Confirm
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

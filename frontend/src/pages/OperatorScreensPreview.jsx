@@ -53,7 +53,7 @@ export default function OperatorScreensPreview() {
                 <OperatorRollCall
                   embedded
                   onSelect={(p) => {
-                    setName(p.name);
+                    setName(p.givenName || p.name);
                     setPhase("splash");
                   }}
                 />
@@ -72,7 +72,7 @@ export default function OperatorScreensPreview() {
                 <OperatorRollCall
                   embedded
                   onSelect={(p) => {
-                    setName(p.name);
+                    setName(p.givenName || p.name);
                     setPhase("splash");
                   }}
                 />

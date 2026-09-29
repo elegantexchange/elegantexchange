@@ -8,6 +8,7 @@ export const SHARED_OPERATOR_ROLES = {
   johan: "admin",
   noah: "manager",
   zachary: "retail",
+  intern: "retail",
 };
 
 export const SHARED_OPERATORS = [
@@ -15,10 +16,18 @@ export const SHARED_OPERATORS = [
   { id: "johan", name: "Johan" },
   { id: "noah", name: "Noah" },
   { id: "zachary", name: "Zachary" },
+  { id: "intern", name: "Intern" },
 ];
 
 const SESSION_KEY = "ee_operator";
 const PERSIST_KEY = "ee_operator_persist";
+
+/** First token of a typed intern name, safe to show in the greeting. */
+export function normalizeGivenName(raw) {
+  const token = String(raw || "").trim().split(/\s+/)[0] || "";
+  if (!/^[\p{L}][\p{L}'’-]*$/u.test(token) || token.length > 40) return "";
+  return token.charAt(0).toLocaleUpperCase() + token.slice(1);
+}
 
 export function needsOperatorPick(user) {
   const email = (user?.email || "").toLowerCase();
@@ -33,7 +42,11 @@ export function readOperator() {
     const parsed = JSON.parse(raw);
     if (!parsed?.id || !parsed?.name) return null;
     if (!SHARED_OPERATORS.some((o) => o.id === parsed.id)) return null;
-    return parsed;
+    const operator = { id: parsed.id, name: parsed.name };
+    const givenName =
+      parsed.id === "intern" ? normalizeGivenName(parsed.givenName) : "";
+    if (givenName) operator.givenName = givenName;
+    return operator;
   } catch {
     return null;
   }
@@ -71,7 +84,11 @@ export function writeOperator(operator, { persist = false } = {}) {
     clearOperator();
     return;
   }
-  const payload = JSON.stringify({ id: operator.id, name: operator.name });
+  const record = { id: operator.id, name: operator.name };
+  const givenName =
+    operator.id === "intern" ? normalizeGivenName(operator.givenName) : "";
+  if (givenName) record.givenName = givenName;
+  const payload = JSON.stringify(record);
   sessionStorage.setItem(SESSION_KEY, payload);
   if (persist) localStorage.setItem(PERSIST_KEY, payload);
   else localStorage.removeItem(PERSIST_KEY);

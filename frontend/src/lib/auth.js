@@ -1,15 +1,32 @@
+import { needsOperatorPick, readOperator } from "@/lib/operator";
+
 /** @param {{ role?: string } | null | undefined} user */
 export function normalizeRole(role) {
   const key = (role || "").toLowerCase();
   if (key === "owner" || key === "admin") return "admin";
   if (key === "manager") return "manager";
-  if (key === "staff" || key === "retail") return "retail";
+  if (key === "staff" || key === "retail" || key === "associate") return "retail";
   return "retail";
 }
 
 /** @param {{ role?: string } | null | undefined} user */
 export function roleOf(user) {
+  // Intern presence on shop@ is the floor associate role, even though the
+  // shared login itself is an owner account.
+  if (needsOperatorPick(user)) {
+    const op = readOperator();
+    if (op?.id === "intern") return "retail";
+  }
   return normalizeRole(user?.role);
+}
+
+/** Badge copy. Interns are associates; the permission key stays retail. */
+export function roleLabelFor(user) {
+  if (needsOperatorPick(user) && readOperator()?.id === "intern") {
+    return "Associate";
+  }
+  const role = roleOf(user);
+  return ROLE_LABELS[role] || role;
 }
 
 /** @param {{ role?: string } | null | undefined} user */

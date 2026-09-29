@@ -14,6 +14,7 @@ from auth import (
     normalize_role,
 )
 from mail import build_invite_email, send_email
+from floor_operator import SHARED_SHOP_EMAIL, apply_floor_role, operator_from_request
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -61,12 +62,23 @@ async def me(user: dict = Depends(get_current_user)):
     return UserOut(**public_user(user))
 
 
+def _intern_on_shared_shop(user: dict, request: Request) -> bool:
+    email = (user.get("email") or "").lower()
+    return email == SHARED_SHOP_EMAIL and operator_from_request(request) == "Intern"
+
+
 @router.put("/me", response_model=UserOut)
 async def update_me(
     body: ProfileUpdate,
     request: Request,
     user: dict = Depends(get_current_user),
 ):
+    if _intern_on_shared_shop(user, request) and (
+        body.name is not None or body.phone is not None or body.password is not None
+    ):
+        raise HTTPException(
+            status_code=403, detail="Associates can't change the shop account"
+        )
     db = request.app.state.db
     updates = {}
     if body.name is not None:
@@ -87,7 +99,7 @@ async def update_me(
         return UserOut(**public_user(user))
     await db.users.update_one({"id": user["id"]}, {"$set": updates})
     fresh = await db.users.find_one({"id": user["id"]})
-    return UserOut(**public_user(fresh))
+    return UserOut(**public_user(apply_floor_role(fresh, request)))
 
 
 @router.post("/onboarding", response_model=UserOut)
@@ -96,6 +108,10 @@ async def complete_onboarding(
     request: Request,
     user: dict = Depends(get_current_user),
 ):
+    if _intern_on_shared_shop(user, request):
+        raise HTTPException(
+            status_code=403, detail="Associates can't change the shop account"
+        )
     if len(body.password) < 8:
         raise HTTPException(
             status_code=400, detail="Password must be at least 8 characters"
@@ -114,7 +130,7 @@ async def complete_onboarding(
     }
     await db.users.update_one({"id": user["id"]}, {"$set": updates})
     fresh = await db.users.find_one({"id": user["id"]})
-    return UserOut(**public_user(fresh))
+    return UserOut(**public_user(apply_floor_role(fresh, request)))
 
 
 @router.post("/tour/complete", response_model=UserOut)
@@ -128,7 +144,7 @@ async def complete_product_tour(
         {"$set": {"product_tour_completed_at": _now()}},
     )
     fresh = await db.users.find_one({"id": user["id"]})
-    return UserOut(**public_user(fresh))
+    return UserOut(**public_user(apply_floor_role(fresh, request)))
 
 
 @router.get("/users")
