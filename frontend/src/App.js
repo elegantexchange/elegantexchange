@@ -15,6 +15,7 @@ import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import TourPreview from "@/pages/TourPreview";
 import TagPrint from "@/pages/TagPrint";
+import TagPrintThermal from "@/pages/TagPrintThermal";
 import DropOffClient from "@/pages/DropOffClient";
 import DropOffAssess from "@/pages/DropOffAssess";
 import DropOffTypeformConcepts from "@/pages/DropOffTypeformConcepts";
@@ -88,6 +89,7 @@ function App() {
               element={<OnboardingRoute preview />}
             />
             <Route path="/print/tags" element={<TagPrint />} />
+            <Route path="/print/tags/thermal" element={<TagPrintThermal />} />
             {/* Client iPad Typeform — outside staff chrome / welcome splash */}
             <Route
               path="/drop-off"

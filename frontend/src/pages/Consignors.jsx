@@ -12,6 +12,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Download,
   Flag,
@@ -19,6 +28,7 @@ import {
   List,
   Mail,
   Phone,
+  Plus,
   Rows3,
   Search,
   SlidersHorizontal,
@@ -34,6 +44,18 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerOrAdmin } from "@/lib/auth";
+
+const ADD_PAYOUT_METHODS = ["Cash", "Check", "Zelle", "Venmo", "Store Credit"];
+
+const blankConsignor = () => ({
+  full_name: "",
+  phone: "",
+  email: "",
+  address: "",
+  payout_method: "Cash",
+  payout_details: "",
+  notes: "",
+});
 
 const FLAG_LABELS = {
   missing_name: "Missing name",
@@ -241,6 +263,175 @@ function readView() {
   return "list";
 }
 
+function AddConsignorDialog({ open, onOpenChange, onCreated }) {
+  const [form, setForm] = useState(blankConsignor());
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(blankConsignor());
+  }, [open]);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    const full_name = form.full_name.trim();
+    if (full_name.length < 2) {
+      toast.error("Enter a full name");
+      return;
+    }
+    const email = form.email.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Enter a valid email or leave it blank");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/consignors", {
+        full_name,
+        phone: form.phone.trim(),
+        email,
+        address: form.address.trim(),
+        payout_method: form.payout_method,
+        payout_details: form.payout_details.trim(),
+        notes: form.notes.trim(),
+      });
+      toast.success(`Added ${data.full_name}`);
+      onCreated(data);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="add-consignor-dialog" className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add consignor</DialogTitle>
+          <DialogDescription>
+            Creates a profile. You can start a drop-off for them after.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Full name
+              </Label>
+              <Input
+                data-testid="add-consignor-name"
+                value={form.full_name}
+                onChange={set("full_name")}
+                autoFocus
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Phone
+              </Label>
+              <Input
+                data-testid="add-consignor-phone"
+                value={form.phone}
+                onChange={set("phone")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Email
+              </Label>
+              <Input
+                data-testid="add-consignor-email"
+                type="email"
+                value={form.email}
+                onChange={set("email")}
+                className="mt-1"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Address
+              </Label>
+              <Input
+                data-testid="add-consignor-address"
+                value={form.address}
+                onChange={set("address")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Payout method
+              </Label>
+              <Select
+                value={form.payout_method}
+                onValueChange={(v) => setForm((f) => ({ ...f, payout_method: v }))}
+              >
+                <SelectTrigger data-testid="add-consignor-payout" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ADD_PAYOUT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Payout details
+              </Label>
+              <Input
+                data-testid="add-consignor-payout-details"
+                value={form.payout_details}
+                onChange={set("payout_details")}
+                placeholder="Zelle or Venmo"
+                className="mt-1"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+                Notes
+              </Label>
+              <Textarea
+                data-testid="add-consignor-notes"
+                rows={2}
+                value={form.notes}
+                onChange={set("notes")}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              className="ee-btn-label text-neutral-600"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              data-testid="add-consignor-save"
+              disabled={busy}
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            >
+              {busy ? "Saving…" : "Add consignor"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Consignors() {
   const { user } = useAuth();
   const showFinance = isManagerOrAdmin(user);
@@ -254,6 +445,7 @@ export default function Consignors() {
   const [sortBy, setSortBy] = useState("name"); // name | id
   const [view, setView] = useState(readView);
   const [params] = useSearchParams();
+  const [addOpen, setAddOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const fileRef = useRef(null);
@@ -615,6 +807,15 @@ export default function Consignors() {
 
   const importActions = (
     <>
+      <Button
+        type="button"
+        data-testid="add-consignor-btn"
+        className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white h-9 px-3 rounded-[8px]"
+        onClick={() => setAddOpen(true)}
+      >
+        <Plus size={14} className="md:mr-1" />
+        <span className="hidden sm:inline">Add</span>
+      </Button>
       <Button
         type="button"
         variant="ghost"
@@ -1001,6 +1202,14 @@ export default function Consignors() {
         </div>
       )}
 
+      <AddConsignorDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onCreated={(c) => {
+          setAddOpen(false);
+          nav(`/consignors/${c.consignor_id}`);
+        }}
+      />
       <Dialog open={!!importResult} onOpenChange={(o) => !o && setImportResult(null)}>
         <DialogContent data-testid="import-summary-dialog" className="max-w-lg">
           <DialogHeader>

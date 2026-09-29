@@ -245,6 +245,8 @@ export default function Inventory() {
   const [importResult, setImportResult] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanSave, setScanSave] = useState(null);
+  const [scanAssign, setScanAssign] = useState("existing");
+  const [scanNewName, setScanNewName] = useState("");
   const [consignors, setConsignors] = useState([]);
   const [savingScan, setSavingScan] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -399,13 +401,30 @@ export default function Inventory() {
 
   const saveScannedItem = async () => {
     if (!scanSave) return;
-    const cid = (scanSave.consignor_id || "").trim();
-    if (!cid) return toast.error("Choose a consignor ID");
     if (!scanSave.description?.trim()) return toast.error("Description is required");
     const price = Number(scanSave.asking_price);
     if (!(price > 0)) return toast.error("Enter a price greater than 0");
+    let cid = (scanSave.consignor_id || "").trim();
+    if (scanAssign === "new") {
+      const full_name = scanNewName.trim();
+      if (full_name.length < 2) return toast.error("Enter the consignor's name");
+    } else if (!consignors.some((c) => c.consignor_id === cid)) {
+      return toast.error("Choose a listed consignor, or add a new one");
+    }
     setSavingScan(true);
     try {
+      if (scanAssign === "new") {
+        const { data: created } = await api.post("/consignors", {
+          full_name: scanNewName.trim(),
+          payout_method: "Cash",
+        });
+        cid = created.consignor_id;
+        setConsignors((prev) =>
+          prev.some((c) => c.consignor_id === created.consignor_id)
+            ? prev
+            : [...prev, created]
+        );
+      }
       const { data } = await api.post("/inventory", {
         consignor_id: cid,
         description: scanSave.description.trim(),
@@ -420,6 +439,8 @@ export default function Inventory() {
       });
       toast.success(`Saved ${data.item_id}`);
       setScanSave(null);
+      setScanAssign("existing");
+      setScanNewName("");
       await load();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
@@ -1251,8 +1272,15 @@ export default function Inventory() {
         onClose={() => setScanOpen(false)}
         confirmLabel="Continue to save"
         onConfirm={(draft) => {
+          const scannedId = (draft.consignor_id || "").trim();
+          const known = consignors.some((c) => c.consignor_id === scannedId);
+          setScanAssign("existing");
+          setScanNewName("");
           setScanOpen(false);
-          setScanSave({ ...draft });
+          setScanSave({
+            ...draft,
+            consignor_id: known ? scannedId : "",
+          });
         }}
       />
 
@@ -1446,44 +1474,83 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!scanSave} onOpenChange={(o) => !o && setScanSave(null)}>
+      <Dialog
+        open={!!scanSave}
+        onOpenChange={(o) => {
+          if (o) return;
+          setScanSave(null);
+          setScanAssign("existing");
+          setScanNewName("");
+        }}
+      >
         <DialogContent data-testid="scan-save-dialog" className="max-w-md">
           <DialogHeader>
             <DialogTitle>Save scanned item</DialogTitle>
             <DialogDescription>
-              Confirm the consignor, then save to inventory.
+              Attach it to a listed consignor, or add a new one.
             </DialogDescription>
           </DialogHeader>
           {scanSave && (
             <div className="space-y-3 text-sm">
-              <div>
-                <Label className="text-[10px] tracking-[0.14em] uppercase">Consignor</Label>
-                <Select
-                  value={scanSave.consignor_id || ""}
-                  onValueChange={(v) =>
-                    setScanSave((s) => ({ ...s, consignor_id: v }))
-                  }
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  data-testid="scan-assign-existing"
+                  onClick={() => setScanAssign("existing")}
+                  className={`flex-1 text-[11px] uppercase tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+                    scanAssign === "existing"
+                      ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
+                      : "border-[var(--ee-border)] text-neutral-600"
+                  }`}
                 >
-                  <SelectTrigger data-testid="scan-save-consignor">
-                    <SelectValue placeholder="Select consignor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {scanSave.consignor_id &&
-                      !consignors.some(
-                        (c) => c.consignor_id === scanSave.consignor_id
-                      ) && (
-                        <SelectItem value={scanSave.consignor_id}>
-                          Unknown · {scanSave.consignor_id} (fix before save)
-                        </SelectItem>
-                      )}
-                    {consignors.map((c) => (
-                      <SelectItem key={c.consignor_id} value={c.consignor_id}>
-                        {c.full_name} · {c.consignor_id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  Listed
+                </button>
+                <button
+                  type="button"
+                  data-testid="scan-assign-new"
+                  onClick={() => setScanAssign("new")}
+                  className={`flex-1 text-[11px] uppercase tracking-[0.12em] font-semibold py-2 px-2 rounded border ${
+                    scanAssign === "new"
+                      ? "border-[var(--ee-magenta)] bg-[var(--ee-magenta-soft)] text-[var(--ee-magenta)]"
+                      : "border-[var(--ee-border)] text-neutral-600"
+                  }`}
+                >
+                  New consignor
+                </button>
               </div>
+              {scanAssign === "existing" ? (
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Consignor</Label>
+                  <Select
+                    value={scanSave.consignor_id || ""}
+                    onValueChange={(v) =>
+                      setScanSave((s) => ({ ...s, consignor_id: v }))
+                    }
+                  >
+                    <SelectTrigger data-testid="scan-save-consignor" className="mt-1">
+                      <SelectValue placeholder="Select a consignor…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {consignors.map((c) => (
+                        <SelectItem key={c.consignor_id} value={c.consignor_id}>
+                          {c.full_name} · {c.consignor_id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-[10px] tracking-[0.14em] uppercase">Full name</Label>
+                  <Input
+                    data-testid="scan-new-consignor-name"
+                    className="mt-1"
+                    value={scanNewName}
+                    onChange={(e) => setScanNewName(e.target.value)}
+                    placeholder="Consignor name"
+                  />
+                </div>
+              )}
               <p className="text-neutral-600 font-light">
                 <span className="font-semibold text-neutral-900">{scanSave.description}</span>
                 {scanSave.asking_price ? ` · $${scanSave.asking_price}` : ""}
