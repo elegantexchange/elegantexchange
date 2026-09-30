@@ -1,26 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api, fmtMoney, fmtDate, fmtPhone, formatApiError } from "@/lib/api";
+import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import ConsignorFields from "@/components/ConsignorFields";
+import { retainDatePopover } from "@/components/DateField";
+import MailLink from "@/components/MailLink";
+import PhoneLink from "@/components/PhoneLink";
+import {
+  buildConsignorBody,
+  displayPhones,
+  draftFromConsignor,
+  expiryLabel,
+  isoToDisplay,
+  phoneTypeLabel,
+} from "@/lib/consignorForm";
 import {
   Tabs,
   TabsList,
@@ -53,6 +63,8 @@ export default function ConsignorDetail() {
   const [data, setData] = useState(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(
     () => api.get(`/consignors/${id}`).then((r) => setData(r.data)),
@@ -65,9 +77,24 @@ export default function ConsignorDetail() {
     });
   }, [load]);
 
+  const removeConsignor = async () => {
+    setDeleting(true);
+    try {
+      await api.delete(`/consignors/${id}`);
+      toast.success("Consignor deleted");
+      nav("/consignors");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+      setDeleting(false);
+    }
+  };
+
   if (!data) {
     return <div className="px-10 py-8 text-sm text-neutral-500">Loading…</div>;
   }
+
+  const phones = displayPhones(data);
+  const deleteBlockers = consignorDeleteBlockers(data);
 
   return (
     <div className="px-6 md:px-10 py-8">
@@ -119,15 +146,31 @@ export default function ConsignorDetail() {
         <section className="bg-white border border-[var(--ee-border)] rounded-md p-5 lg:col-span-2">
           <h2 className="ee-section-header text-base mb-3">Contact</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 text-sm min-w-0">
-            <div className="flex items-center gap-2 text-neutral-700 min-w-0">
-              <Phone size={13} className="text-neutral-400 shrink-0" />
-              <span className="truncate">
-                {data.phone ? fmtPhone(data.phone) : "—"}
-              </span>
+            <div className="space-y-1.5 min-w-0">
+              {phones.length ? (
+                phones.map((p) => (
+                  <div key={`${p.type}-${p.number}`} className="flex items-center gap-2 text-neutral-700 min-w-0">
+                    <Phone size={13} className="text-neutral-400 shrink-0" />
+                    <PhoneLink number={p.number} className="truncate" />
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-neutral-400 font-semibold shrink-0">
+                      {phoneTypeLabel(p.type)}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-center gap-2 text-neutral-700">
+                  <Phone size={13} className="text-neutral-400 shrink-0" />
+                  <span>—</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 text-neutral-700 min-w-0">
               <Mail size={13} className="text-neutral-400 shrink-0" />
-              <span className="truncate">{data.email || "—"}</span>
+              {data.email ? (
+                <MailLink email={data.email} className="truncate" />
+              ) : (
+                <span>—</span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-neutral-700 sm:col-span-2 min-w-0">
               <MapPin size={13} className="text-neutral-400 shrink-0" />
@@ -153,9 +196,9 @@ export default function ConsignorDetail() {
             ) : null}
             <div className="min-w-0">
               <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
-                Expired items
+                When items expire
               </div>
-              <div className="break-words">{data.expiry_action || "—"}</div>
+              <div className="break-words">{expiryLabel(data.expiry_action) || "—"}</div>
             </div>
             <div className="min-w-0">
               <div className="text-[10px] tracking-[0.18em] uppercase text-neutral-500 font-semibold">
@@ -163,9 +206,10 @@ export default function ConsignorDetail() {
               </div>
               <div className="break-words">
                 {data.date_of_drop_off
-                  ? data.date_of_drop_off.length === 10
-                    ? fmtDate(data.date_of_drop_off)
-                    : data.date_of_drop_off
+                  ? isoToDisplay(data.date_of_drop_off) ||
+                    (data.date_of_drop_off.length === 10
+                      ? fmtDate(data.date_of_drop_off)
+                      : data.date_of_drop_off)
                   : "—"}
               </div>
             </div>
@@ -432,68 +476,74 @@ export default function ConsignorDetail() {
             }
             load();
           }}
+          onDelete={() => setDeleteOpen(true)}
+          canDelete={!data.is_house && id !== "2999" && id !== "HOUSE"}
         />
+      ) : null}
+      {canEdit ? (
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent data-testid="delete-consignor-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete consignor</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteBlockers.length
+                  ? `This consignor still has ${deleteBlockers.join(", ")}. Clear that history before deleting the profile.`
+                  : `Delete ${data.full_name || "this consignor"} (${data.consignor_id})? This can't be undone.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              {deleteBlockers.length === 0 ? (
+                <Button
+                  type="button"
+                  data-testid="delete-consignor-confirm"
+                  disabled={deleting}
+                  className="bg-red-700 hover:bg-red-800 text-white"
+                  onClick={removeConsignor}
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </Button>
+              ) : null}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
     </div>
   );
 }
 
-function draftFromConsignor(consignor) {
-  return {
-    consignor_id: consignor?.consignor_id || "",
-    full_name: consignor?.full_name || "",
-    phone: consignor?.phone || "",
-    email: consignor?.email || "",
-    address: consignor?.address || "",
-    payout_method: consignor?.payout_method || "Cash",
-    payout_details: consignor?.payout_details || "",
-    expiry_action: consignor?.expiry_action || "",
-    date_of_drop_off: consignor?.date_of_drop_off || "",
-    notes: consignor?.notes || "",
-  };
+function consignorDeleteBlockers(data) {
+  const bits = [];
+  const items = (data.items || []).length;
+  const sales = (data.sales || []).length;
+  const payouts = (data.payouts || []).length;
+  if (items) bits.push(`${items} item${items === 1 ? "" : "s"}`);
+  if (sales) bits.push(`${sales} sale${sales === 1 ? "" : "s"}`);
+  if (payouts) bits.push(`${payouts} payout${payouts === 1 ? "" : "s"}`);
+  return bits;
 }
 
-function EditConsignorDialog({ open, consignor, onOpenChange, onSaved }) {
-  const [form, setForm] = useState(draftFromConsignor(consignor));
+function EditConsignorDialog({ open, consignor, onOpenChange, onSaved, onDelete, canDelete }) {
+  const [form, setForm] = useState(() => draftFromConsignor(consignor));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) setForm(draftFromConsignor(consignor));
   }, [open, consignor]);
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
-
   const save = async (e) => {
     e.preventDefault();
-    const full_name = form.full_name.trim();
-    const consignor_id = form.consignor_id.trim();
-    if (!/^\d{4}$/.test(consignor_id)) {
-      toast.error("Consignor ID should be 4 digits, like 2047");
-      return;
-    }
-    if (full_name.length < 2) {
-      toast.error("Enter a full name");
-      return;
-    }
-    const email = form.email.trim();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error("Enter a valid email or leave it blank");
+    const built = buildConsignorBody(form);
+    if (built.error) {
+      toast.error(built.error);
       return;
     }
     setBusy(true);
     try {
-      const { data } = await api.patch(`/consignors/${consignor.consignor_id}`, {
-        consignor_id,
-        full_name,
-        phone: form.phone.trim(),
-        email,
-        address: form.address.trim(),
-        payout_method: form.payout_method,
-        payout_details: form.payout_details.trim(),
-        expiry_action: form.expiry_action.trim(),
-        date_of_drop_off: form.date_of_drop_off.trim(),
-        notes: form.notes.trim(),
-      });
+      const { data } = await api.patch(
+        `/consignors/${consignor.consignor_id}`,
+        built.body
+      );
       toast.success("Consignor updated");
       onOpenChange(false);
       onSaved(data.consignor_id);
@@ -506,7 +556,13 @@ function EditConsignorDialog({ open, consignor, onOpenChange, onSaved }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="edit-consignor-dialog" className="max-w-lg">
+      <DialogContent
+        data-testid="edit-consignor-dialog"
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        onPointerDownOutside={retainDatePopover}
+        onInteractOutside={retainDatePopover}
+        onFocusOutside={retainDatePopover}
+      >
         <DialogHeader>
           <DialogTitle>Edit consignor</DialogTitle>
           <DialogDescription>
@@ -514,152 +570,46 @@ function EditConsignorDialog({ open, consignor, onOpenChange, onSaved }) {
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Consignor ID
-              </Label>
-              <Input
-                data-testid="edit-consignor-id"
-                value={form.consignor_id}
-                onChange={set("consignor_id")}
-                inputMode="numeric"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Full name
-              </Label>
-              <Input
-                data-testid="edit-consignor-name"
-                value={form.full_name}
-                onChange={set("full_name")}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Phone
-              </Label>
-              <Input
-                data-testid="edit-consignor-phone"
-                value={form.phone}
-                onChange={set("phone")}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Email
-              </Label>
-              <Input
-                data-testid="edit-consignor-email"
-                type="email"
-                value={form.email}
-                onChange={set("email")}
-                className="mt-1"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Address
-              </Label>
-              <Input
-                data-testid="edit-consignor-address"
-                value={form.address}
-                onChange={set("address")}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Payout method
-              </Label>
-              <Select
-                value={form.payout_method}
-                onValueChange={(v) => setForm((f) => ({ ...f, payout_method: v }))}
+          <ConsignorFields
+            form={form}
+            setForm={setForm}
+            payoutMethods={EDIT_PAYOUT_METHODS}
+            idPrefix="edit-consignor"
+          />
+          <div className="flex items-center justify-between gap-3 pt-1">
+            {canDelete ? (
+              <button
+                type="button"
+                data-testid="consignor-delete-btn"
+                disabled={busy}
+                onClick={onDelete}
+                className="text-[12px] text-neutral-400 hover:text-red-700 disabled:opacity-40"
               >
-                <SelectTrigger data-testid="edit-consignor-payout" className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EDIT_PAYOUT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Payout details
-              </Label>
-              <Input
-                data-testid="edit-consignor-payout-details"
-                value={form.payout_details}
-                onChange={set("payout_details")}
-                placeholder="Zelle or Venmo"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                When items expire
-              </Label>
-              <Input
-                data-testid="edit-consignor-expiry"
-                value={form.expiry_action}
-                onChange={set("expiry_action")}
-                placeholder="Donate or pick up"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Drop-off date
-              </Label>
-              <Input
-                data-testid="edit-consignor-dropoff"
-                value={form.date_of_drop_off}
-                onChange={set("date_of_drop_off")}
-                placeholder="YYYY-MM-DD"
-                className="mt-1"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Notes
-              </Label>
-              <Textarea
-                data-testid="edit-consignor-notes"
-                rows={2}
-                value={form.notes}
-                onChange={set("notes")}
-                className="mt-1"
-              />
+                Delete consignor
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="ee-btn-label text-neutral-600"
+                onClick={() => onOpenChange(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                data-testid="edit-consignor-save"
+                disabled={busy}
+                className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              >
+                {busy ? "Saving…" : "Save"}
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              className="ee-btn-label text-neutral-600"
-              onClick={() => onOpenChange(false)}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              data-testid="edit-consignor-save"
-              disabled={busy}
-              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-            >
-              {busy ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

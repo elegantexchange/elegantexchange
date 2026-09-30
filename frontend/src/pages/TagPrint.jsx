@@ -83,7 +83,16 @@ export default function TagPrint() {
           <button
             data-testid="print-now"
             type="button"
-            onClick={() => window.print()}
+            onClick={async () => {
+              if (!demo && ids.length) {
+                try {
+                  await api.post("/inventory/tags-printed", { item_ids: ids });
+                } catch {
+                  /* still print if the queue update fails */
+                }
+              }
+              window.print();
+            }}
             className="ee-btn-label bg-[var(--ee-magenta)] text-white px-4 py-2.5 rounded hover:bg-[#6f1655] inline-flex items-center justify-center gap-2 shrink-0"
           >
             <Printer size={14} /> Print sheet

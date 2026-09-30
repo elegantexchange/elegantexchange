@@ -7,6 +7,8 @@ import io
 import re
 import uuid
 
+import httpx
+
 from models import (
     ConsignorCreate,
     ConsignorImportFlagged,
@@ -15,7 +17,8 @@ from models import (
     ConsignorUpdate,
 )
 from auth import get_current_user, normalize_role, require_roles
-from id_gen import next_consignor_id
+from consignor_fields import canon_expiry, has_phone, normalize_phones, present_phones
+from id_gen import next_consignor_id, peek_next_consignor_id
 from sale_ops import upsert_opening_balance
 from csv_import_utils import parse_money
 
@@ -217,8 +220,7 @@ def _apply_derived_review(c: dict, expired_n: int, live_n: int | None = None) ->
     if c["expired_items"] > 0:
         flags.append("expired_items")
     email = (c.get("email") or "").strip()
-    phone = (c.get("phone") or "").strip()
-    if not email and not phone:
+    if not email and not has_phone(c):
         flags.append("missing_contact")
     c["import_flags"] = flags
     c["needs_review"] = bool(flags)
@@ -327,7 +329,18 @@ def _compute_import_flags(
 async def _insert_consignor(db, body: ConsignorCreate) -> dict:
     from boutique_settings import current_consignor_split_pct
 
-    cid = (body.consignor_id or "").strip() or await next_consignor_id(db)
+    cid = (body.consignor_id or "").strip()
+    if cid:
+        from house_stock import is_house_consignor_id
+
+        if not re.fullmatch(r"\d{4}", cid):
+            raise HTTPException(
+                status_code=400, detail="Consignor ID should be 4 digits, like 2047"
+            )
+        if is_house_consignor_id(cid):
+            raise HTTPException(status_code=400, detail="That ID is reserved")
+    else:
+        cid = await next_consignor_id(db)
     existing = await db.consignors.find_one({"consignor_id": cid}, {"_id": 1})
     if existing:
         raise HTTPException(
@@ -336,17 +349,20 @@ async def _insert_consignor(db, body: ConsignorCreate) -> dict:
 
     flags = list(body.import_flags or [])
     split_pct = await current_consignor_split_pct(db)
+    raw_phones = [p.model_dump() for p in body.phones] if body.phones else []
+    phones, primary = normalize_phones(raw_phones, body.phone or "")
     doc = {
         "id": str(uuid.uuid4()),
         "consignor_id": cid,
         "full_name": body.full_name,
-        "phone": body.phone or "",
+        "phone": primary,
+        "phones": phones,
         "email": (body.email or "").lower(),
         "address": body.address or "",
         "payout_method": body.payout_method,
         "payout_details": body.payout_details or "",
         "notes": body.notes or "",
-        "expiry_action": body.expiry_action or "",
+        "expiry_action": canon_expiry(body.expiry_action or ""),
         "date_of_drop_off": body.date_of_drop_off or "",
         "import_flags": flags,
         "needs_review": bool(flags),
@@ -391,6 +407,7 @@ async def list_consignors(request: Request, _u: dict = Depends(get_current_user)
         _apply_derived_review(
             c, expired_map.get(cid, 0), live_map.get(cid, 0)
         )
+        present_phones(c)
         if retail:
             _redact_consignor_for_retail(c)
         c["is_house"] = False
@@ -409,7 +426,63 @@ async def create_consignor(
     body: ConsignorCreate, request: Request, _u: dict = Depends(get_current_user)
 ):
     db = request.app.state.db
+    raw_date = (body.date_of_drop_off or "").strip()
+    if raw_date:
+        parsed, ok = _parse_drop_off_date(raw_date)
+        if not ok:
+            raise HTTPException(
+                status_code=400, detail="Enter the drop-off date as MM-DD-YYYY"
+            )
+        body.date_of_drop_off = parsed
     return await _insert_consignor(db, body)
+
+
+@router.get("/next-id")
+async def preview_next_consignor_id(
+    request: Request, _u: dict = Depends(get_current_user)
+):
+    """Suggested ID for a new consignor. Does not reserve the number."""
+    db = request.app.state.db
+    return {"consignor_id": await peek_next_consignor_id(db)}
+
+
+# Bridgewater, MA — prefer nearby streets while someone is typing.
+_ADDRESS_BIAS = "-70.9756,41.9904"
+
+
+@router.get("/address-suggest")
+async def address_suggest(q: str = "", _u: dict = Depends(get_current_user)):
+    """Address suggestions as a street address is typed. Empty list if lookup fails."""
+    query = (q or "").strip()
+    if len(query) < 3:
+        return {"suggestions": []}
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            res = await client.get(
+                "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest",
+                params={
+                    "text": query,
+                    "f": "json",
+                    "countryCode": "USA",
+                    "category": "Address",
+                    "maxSuggestions": 6,
+                    "location": _ADDRESS_BIAS,
+                },
+                headers={"User-Agent": "ElegantExchange/1.0"},
+            )
+            res.raise_for_status()
+            payload = res.json()
+    except Exception:
+        return {"suggestions": []}
+
+    seen: list[str] = []
+    for row in payload.get("suggestions") or []:
+        text = (row.get("text") or "").strip()
+        if text.endswith(", USA"):
+            text = text[: -len(", USA")].rstrip(" ,")
+        if text and text not in seen:
+            seen.append(text)
+    return {"suggestions": seen}
 
 
 @router.get("/import/template")
@@ -672,6 +745,7 @@ async def get_consignor(
         {"consignor_id": consignor_id, "status": "Active"}
     )
     _apply_derived_review(c, expired_n, live_n)
+    present_phones(c)
     c["items"] = await db.inventory.find(
         {"consignor_id": consignor_id}, {"_id": 0}
     ).sort("date_in", -1).to_list(2000)
@@ -705,8 +779,7 @@ def _profile_flags(existing_flags: list, merged: dict, updates: dict) -> list[st
         if _name_needs_review(merged.get("full_name") or ""):
             flags.append("missing_name")
     email = (merged.get("email") or "").strip()
-    phone = (merged.get("phone") or "").strip()
-    if not email and not phone:
+    if not email and not has_phone(merged):
         flags.append("missing_contact")
     if "date_of_drop_off" in updates:
         flags = [
@@ -721,7 +794,7 @@ def _profile_flags(existing_flags: list, merged: dict, updates: dict) -> list[st
             flags.append("unparsed_drop_off_date")
     if "import_flags" in updates:
         supplied = [f for f in (updates["import_flags"] or []) if f != "missing_contact"]
-        if not email and not phone:
+        if not email and not has_phone(merged):
             supplied.append("missing_contact")
         flags = supplied
     return flags
@@ -751,6 +824,31 @@ async def update_consignor(
     for key in ("full_name", "phone", "address", "payout_details", "notes", "expiry_action", "date_of_drop_off"):
         if key in updates and isinstance(updates[key], str):
             updates[key] = updates[key].strip()
+    if "phones" in updates or "phone" in updates:
+        if "phones" in updates:
+            raw_phones = updates.get("phones") or []
+            phones, primary = normalize_phones(raw_phones, "")
+        else:
+            existing_phones = list(existing.get("phones") or [])
+            typed = updates.get("phone") or ""
+            if existing_phones:
+                merged_rows = [{**existing_phones[0], "number": typed}, *existing_phones[1:]]
+            else:
+                merged_rows = [{"type": "mobile", "number": typed}]
+            phones, primary = normalize_phones(merged_rows, "")
+        updates["phones"] = phones
+        updates["phone"] = primary
+    if "expiry_action" in updates:
+        updates["expiry_action"] = canon_expiry(updates["expiry_action"])
+    if "date_of_drop_off" in updates:
+        raw_date = updates["date_of_drop_off"]
+        if raw_date:
+            parsed, ok = _parse_drop_off_date(raw_date)
+            if not ok:
+                raise HTTPException(
+                    status_code=400, detail="Enter the drop-off date as MM-DD-YYYY"
+                )
+            updates["date_of_drop_off"] = parsed
     if "email" in updates and isinstance(updates["email"], str):
         updates["email"] = updates["email"].strip().lower()
     if "full_name" in updates and len(updates["full_name"]) < 2:
@@ -800,14 +898,34 @@ async def update_consignor(
 async def delete_consignor(
     consignor_id: str,
     request: Request,
-    _u: dict = Depends(require_roles("admin", "manager")),
+    _u: dict = Depends(require_roles("admin")),
 ):
     db = request.app.state.db
-    count = await db.inventory.count_documents({"consignor_id": consignor_id})
-    if count > 0:
+    existing = await db.consignors.find_one({"consignor_id": consignor_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Not found")
+    from house_stock import is_house_consignor
+
+    if is_house_consignor(existing):
+        raise HTTPException(status_code=400, detail="The house account can't be deleted")
+
+    blockers: list[str] = []
+    inventory_n = await db.inventory.count_documents({"consignor_id": consignor_id})
+    sales_n = await db.sales.count_documents({"consignor_id": consignor_id})
+    payouts_n = await db.payouts.count_documents({"consignor_id": consignor_id})
+    if inventory_n:
+        blockers.append(f"{inventory_n} item{'s' if inventory_n != 1 else ''}")
+    if sales_n:
+        blockers.append(f"{sales_n} sale{'s' if sales_n != 1 else ''}")
+    if payouts_n:
+        blockers.append(f"{payouts_n} payout{'s' if payouts_n != 1 else ''}")
+    if blockers:
         raise HTTPException(
-            status_code=400, detail="Cannot delete consignor with inventory"
+            status_code=400,
+            detail=f"Can't delete this consignor while they still have {' and '.join(blockers)}",
         )
+
+    await db.drop_offs.delete_many({"consignor_id": consignor_id})
     await db.consignors.delete_one({"consignor_id": consignor_id})
     return {"ok": True}
 

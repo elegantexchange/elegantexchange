@@ -41,6 +41,21 @@ async def _highest_consignor_number(db) -> int:
     return highest
 
 
+async def peek_next_consignor_id(db) -> str:
+    """Next consignor id without reserving it, so a form can show it and still edit it."""
+    from house_stock import is_house_consignor_id
+
+    highest = await _highest_consignor_number(db)
+    for n in range(highest + 1, highest + 5000):
+        cid = str(n)
+        if not _CONSIGNOR_ID_RE.fullmatch(cid) or is_house_consignor_id(cid):
+            continue
+        exists = await db.consignors.find_one({"consignor_id": cid}, {"_id": 1})
+        if not exists:
+            return cid
+    raise RuntimeError("Could not allocate a free consignor id")
+
+
 async def next_consignor_id(db) -> str:
     """Next consignor id, one past the highest number already on file.
 

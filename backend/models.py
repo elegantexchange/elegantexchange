@@ -54,17 +54,23 @@ class ProfileUpdate(BaseModel):
     password: Optional[str] = None
 
 
+class PhoneEntry(BaseModel):
+    type: str = "mobile"  # mobile / home / work
+    number: str = ""
+
+
 # ----- Consignors -----
 class ConsignorCreate(BaseModel):
     full_name: str
     phone: Optional[str] = ""
+    phones: Optional[List[PhoneEntry]] = None
     email: Optional[str] = ""
     address: Optional[str] = ""
     payout_method: Literal["Cash", "Check", "Zelle", "Venmo", "Store Credit"] = "Cash"
     payout_details: Optional[str] = ""
     notes: Optional[str] = ""
     consignor_id: Optional[str] = None  # external boutique ID (e.g. 2XXX); auto if omitted
-    expiry_action: Optional[str] = ""  # donate / pick-up / freeform notes
+    expiry_action: Optional[str] = ""  # donate / pick-up / return
     date_of_drop_off: Optional[str] = ""  # YYYY-MM-DD when parseable
     import_flags: Optional[List[str]] = None
 
@@ -72,6 +78,7 @@ class ConsignorCreate(BaseModel):
 class ConsignorUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
+    phones: Optional[List[PhoneEntry]] = None
     email: Optional[str] = None
     address: Optional[str] = None
     payout_method: Optional[str] = None

@@ -157,6 +157,7 @@ async def assess_drop_off(
             "media": list(raw.get("media") or []),
             "consignor_split_pct": split_pct,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "tags_printed": False,
         }
         await db.inventory.insert_one(doc)
         doc.pop("_id", None)

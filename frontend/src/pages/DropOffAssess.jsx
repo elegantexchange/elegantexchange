@@ -68,7 +68,7 @@ export default function DropOffAssess() {
     setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
   };
 
-  const submit = async () => {
+  const submit = async (printNow) => {
     if (!validItems.length) {
       toast.error("Add at least one item with description and price");
       return;
@@ -81,10 +81,14 @@ export default function DropOffAssess() {
           asking_price: Number(i.asking_price),
         })),
       });
-      toast.success(`${data.created} item${data.created === 1 ? "" : "s"} added`);
       const ids = (data.item_ids || []).join(",");
-      if (ids) {
+      if (printNow && ids) {
+        toast.success(`${data.created} item${data.created === 1 ? "" : "s"} added`);
         window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
+      } else {
+        toast.success(
+          `${data.created} item${data.created === 1 ? "" : "s"} added. Print the tags later from Inventory.`
+        );
       }
       nav(`/consignors/${data.consignor_id}`, { replace: true });
     } catch (e) {
@@ -218,13 +222,25 @@ export default function DropOffAssess() {
       <div className="mt-8 flex flex-wrap gap-2">
         <Button
           type="button"
+          variant="outline"
+          data-testid="dropoff-assess-print-now"
+          disabled={busy || !validItems.length}
+          className="ee-btn-label rounded-[8px]"
+          onClick={() => submit(true)}
+        >
+          <Printer size={14} className="mr-1" />
+          Print tags now
+        </Button>
+        <Button
+          type="button"
           data-testid="dropoff-assess-save"
           disabled={busy || !validItems.length}
           className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-          onClick={submit}
+          onClick={() => submit(false)}
         >
-          <Printer size={14} className="mr-1" />
-          {busy ? "Saving…" : `Save ${validItems.length || ""} item${validItems.length === 1 ? "" : "s"} & print tags`}
+          {busy
+            ? "Saving…"
+            : `Save ${validItems.length || ""} item${validItems.length === 1 ? "" : "s"}, print later`}
         </Button>
       </div>
 

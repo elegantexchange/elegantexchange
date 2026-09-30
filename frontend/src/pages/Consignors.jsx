@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { api, fmtMoney, fmtPhone, formatApiError } from "@/lib/api";
+import { api, fmtMoney, formatApiError } from "@/lib/api";
+import { retainDatePopover } from "@/components/DateField";
+import MailLink from "@/components/MailLink";
+import PhoneLink from "@/components/PhoneLink";
+import ConsignorFields from "@/components/ConsignorFields";
+import { blankConsignorForm, buildConsignorBody, displayPhones } from "@/lib/consignorForm";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,17 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Download,
   Flag,
   LayoutGrid,
   List,
@@ -46,16 +41,6 @@ import { useAuth } from "@/context/AuthContext";
 import { isManagerOrAdmin } from "@/lib/auth";
 
 const ADD_PAYOUT_METHODS = ["Cash", "Check", "Zelle", "Venmo", "Store Credit"];
-
-const blankConsignor = () => ({
-  full_name: "",
-  phone: "",
-  email: "",
-  address: "",
-  payout_method: "Cash",
-  payout_details: "",
-  notes: "",
-});
 
 const FLAG_LABELS = {
   missing_name: "Missing name",
@@ -145,7 +130,7 @@ function displayFlags(c) {
 }
 
 function hasContact(c) {
-  return Boolean((c.phone || "").trim() || (c.email || "").trim());
+  return Boolean(displayPhones(c).length || (c.email || "").trim());
 }
 
 function derivedFlags(c) {
@@ -264,39 +249,37 @@ function readView() {
 }
 
 function AddConsignorDialog({ open, onOpenChange, onCreated }) {
-  const [form, setForm] = useState(blankConsignor());
+  const [form, setForm] = useState(blankConsignorForm);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) setForm(blankConsignor());
+    if (!open) return;
+    let cancelled = false;
+    setForm(blankConsignorForm());
+    api
+      .get("/consignors/next-id")
+      .then((r) => {
+        if (cancelled) return;
+        const nextId = r.data?.consignor_id || "";
+        setForm((f) => (f.consignor_id ? f : { ...f, consignor_id: nextId }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
-
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const save = async (e) => {
     e.preventDefault();
-    const full_name = form.full_name.trim();
-    if (full_name.length < 2) {
-      toast.error("Enter a full name");
-      return;
-    }
-    const email = form.email.trim();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error("Enter a valid email or leave it blank");
+    const built = buildConsignorBody(form);
+    if (built.error) {
+      toast.error(built.error);
       return;
     }
     setBusy(true);
     try {
-      const { data } = await api.post("/consignors", {
-        full_name,
-        phone: form.phone.trim(),
-        email,
-        address: form.address.trim(),
-        payout_method: form.payout_method,
-        payout_details: form.payout_details.trim(),
-        notes: form.notes.trim(),
-      });
-      toast.success(`Added ${data.full_name}`);
+      const { data } = await api.post("/consignors", built.body);
+      toast.success(`Added ${data.full_name} · ${data.consignor_id}`);
       onCreated(data);
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail) || err.message);
@@ -307,106 +290,24 @@ function AddConsignorDialog({ open, onOpenChange, onCreated }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="add-consignor-dialog" className="max-w-lg">
+      <DialogContent
+        data-testid="add-consignor-dialog"
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        onPointerDownOutside={retainDatePopover}
+        onInteractOutside={retainDatePopover}
+        onFocusOutside={retainDatePopover}
+      >
         <DialogHeader>
           <DialogTitle>Add consignor</DialogTitle>
-          <DialogDescription>
-            Creates a profile. You can start a drop-off for them after.
-          </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="sm:col-span-2">
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Full name
-              </Label>
-              <Input
-                data-testid="add-consignor-name"
-                value={form.full_name}
-                onChange={set("full_name")}
-                autoFocus
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Phone
-              </Label>
-              <Input
-                data-testid="add-consignor-phone"
-                value={form.phone}
-                onChange={set("phone")}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Email
-              </Label>
-              <Input
-                data-testid="add-consignor-email"
-                type="email"
-                value={form.email}
-                onChange={set("email")}
-                className="mt-1"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Address
-              </Label>
-              <Input
-                data-testid="add-consignor-address"
-                value={form.address}
-                onChange={set("address")}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Payout method
-              </Label>
-              <Select
-                value={form.payout_method}
-                onValueChange={(v) => setForm((f) => ({ ...f, payout_method: v }))}
-              >
-                <SelectTrigger data-testid="add-consignor-payout" className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ADD_PAYOUT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Payout details
-              </Label>
-              <Input
-                data-testid="add-consignor-payout-details"
-                value={form.payout_details}
-                onChange={set("payout_details")}
-                placeholder="Zelle or Venmo"
-                className="mt-1"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
-                Notes
-              </Label>
-              <Textarea
-                data-testid="add-consignor-notes"
-                rows={2}
-                value={form.notes}
-                onChange={set("notes")}
-                className="mt-1"
-              />
-            </div>
-          </div>
+          <ConsignorFields
+            form={form}
+            setForm={setForm}
+            payoutMethods={ADD_PAYOUT_METHODS}
+            autoFocusId
+            idPrefix="add-consignor"
+          />
           <DialogFooter>
             <Button
               type="button"
@@ -492,11 +393,6 @@ export default function Consignors() {
     [baseList]
   );
 
-  const needsNameCount = useMemo(
-    () => baseList.filter((c) => needsName(c)).length,
-    [baseList]
-  );
-
   const filtered = useMemo(() => {
     const term = q.toLowerCase().trim();
     const rows = baseList.filter((c) => {
@@ -518,13 +414,14 @@ export default function Consignors() {
         if (!isSettledFloor(c, showFinance)) return false;
       }
       if (!term) return true;
-      const phoneDigits = (c.phone || "").replace(/\D/g, "");
+      const phones = displayPhones(c);
+      const phoneDigits = phones.map((p) => p.number).join("").replace(/\D/g, "");
       const termDigits = term.replace(/\D/g, "");
       return (
         (c.full_name || "").toLowerCase().includes(term) ||
         displayName(c).toLowerCase().includes(term) ||
         (c.consignor_id || "").toLowerCase().includes(term) ||
-        (c.phone || "").toLowerCase().includes(term) ||
+        phones.some((p) => p.number.toLowerCase().includes(term)) ||
         (termDigits && phoneDigits.includes(termDigits)) ||
         (c.email || "").toLowerCase().includes(term)
       );
@@ -628,23 +525,6 @@ export default function Consignors() {
     setNamedOnly(true);
   };
 
-  const downloadTemplate = async () => {
-    try {
-      const res = await api.get("/consignors/import/template", {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "consignors-import-template.csv";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Template downloaded");
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail) || e.message);
-    }
-  };
-
   const onImportFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -678,23 +558,23 @@ export default function Consignors() {
       {showFinance && filtered.length > 0
         ? ` · ${fmtMoney(filtered.reduce((sum, c) => sum + (c.total_owed || 0), 0))} owed`
         : ""}
-      {needsNameCount ? (
+      {flaggedCount ? (
         <>
           {" · "}
           <button
             type="button"
-            data-testid="consignors-meta-needs-name"
+            data-testid="consignors-meta-needs-review"
             onClick={() => {
-              setNeedsNameOnly(true);
+              setNeedsNameOnly(false);
               setNamedOnly(false);
+              setToneFilter("review");
             }}
             className="text-[var(--ee-magenta)] font-medium hover:underline"
           >
-            {needsNameCount} need a name
+            {flaggedCount} need review
           </button>
         </>
       ) : null}
-      {flaggedCount ? ` · ${flaggedCount} need review` : ""}
     </>
   );
 
@@ -819,17 +699,6 @@ export default function Consignors() {
       <Button
         type="button"
         variant="ghost"
-        data-testid="download-consignor-template-btn"
-        className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
-        onClick={downloadTemplate}
-        title="Download template"
-      >
-        <Download size={14} className="md:mr-1" />
-        <span className="hidden lg:inline">Template</span>
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
         data-testid="import-consignors-btn"
         className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
         disabled={importing}
@@ -933,10 +802,12 @@ export default function Consignors() {
             const flags = displayFlags(c);
             const tone = primaryTone(c, showFinance);
             const pills = pillsFor(c, showFinance);
+            const phones = displayPhones(c);
             return (
-              <motion.button
+              <motion.div>
                 key={c.consignor_id}
-                type="button"
+                role="link"
+                tabIndex={0}
                 data-testid={`consignor-row-${c.consignor_id}`}
                 custom={i}
                 variants={fadeUp}
@@ -945,6 +816,9 @@ export default function Consignors() {
                 whileHover={{ y: -4 }}
                 transition={{ type: "spring", stiffness: 360, damping: 28 }}
                 onClick={() => open(c.consignor_id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") open(c.consignor_id);
+                }}
                 className={`${panel} p-5 text-left cursor-pointer min-w-0`}
               >
                 <div className="flex items-start gap-3 min-w-0">
@@ -1023,15 +897,22 @@ export default function Consignors() {
                 <div className="mt-4 pt-3 border-t border-black/[0.06] space-y-1.5 text-[12px] text-neutral-600">
                   <div className="flex items-center gap-2 min-w-0">
                     <Phone size={12} className="shrink-0 text-neutral-400" />
-                    <span className="truncate">
-                      {c.phone ? fmtPhone(c.phone) : "No phone"}
-                    </span>
+                    {phones[0] ? (
+                      <span className="truncate">
+                        <PhoneLink number={phones[0].number} />
+                        {phones.length > 1 ? ` +${phones.length - 1}` : ""}
+                      </span>
+                    ) : (
+                      <span className="truncate">No phone</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
                     <Mail size={12} className="shrink-0 text-neutral-400" />
-                    <span className="truncate" title={c.email || undefined}>
-                      {c.email || "No email"}
-                    </span>
+                    {c.email ? (
+                      <MailLink email={c.email} className="truncate" />
+                    ) : (
+                      <span className="truncate">No email</span>
+                    )}
                   </div>
                   {flags.length > 0 && (
                     <div
@@ -1043,7 +924,7 @@ export default function Consignors() {
                     </div>
                   )}
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
         </div>
@@ -1059,13 +940,18 @@ export default function Consignors() {
               const flags = displayFlags(c);
               const tone = primaryTone(c, showFinance);
               const pills = pillsFor(c, showFinance);
+              const phones = displayPhones(c);
               return (
                 <li key={c.consignor_id}>
-                  <button
-                    type="button"
+                  <div
+                    role="link"
+                    tabIndex={0}
                     data-testid={`consignor-row-${c.consignor_id}`}
                     onClick={() => open(c.consignor_id)}
-                    className="w-full text-left px-3 sm:px-4 py-3 flex items-center gap-3 hover:bg-black/[0.02] transition-colors min-w-0"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") open(c.consignor_id);
+                    }}
+                    className="w-full text-left px-3 sm:px-4 py-3 flex items-center gap-3 hover:bg-black/[0.02] transition-colors min-w-0 cursor-pointer"
                   >
                     <div
                       className="w-9 h-9 rounded-[8px] flex items-center justify-center text-[12px] font-bold shrink-0"
@@ -1088,7 +974,12 @@ export default function Consignors() {
                       </div>
                       <div className="text-[11px] text-neutral-500 truncate mt-0.5">
                         {c.consignor_id}
-                        {c.phone ? ` · ${fmtPhone(c.phone)}` : ""}
+                        {phones[0] ? (
+                          <>
+                            {" · "}
+                            <PhoneLink number={phones[0].number} />
+                          </>
+                        ) : null}
                         {(c.expired_items || 0) > 0
                           ? ` · ${c.expired_items} expired`
                           : ""}
@@ -1122,8 +1013,8 @@ export default function Consignors() {
                         </div>
                       )}
                     </div>
-                  </button>
-                </li>
+                    </div>
+                  </li>
               );
             })}
           </ul>
@@ -1152,6 +1043,7 @@ export default function Consignors() {
               {filtered.map((c) => {
                 const tone = primaryTone(c, showFinance);
                 const pills = pillsFor(c, showFinance);
+                const phones = displayPhones(c);
                 return (
                   <tr
                     key={c.consignor_id}
@@ -1186,7 +1078,13 @@ export default function Consignors() {
                       </td>
                     ) : null}
                     <td className="px-4 py-3 text-neutral-600 max-w-[220px] truncate">
-                      {c.phone ? fmtPhone(c.phone) : c.email || "—"}
+                      {phones[0] ? (
+                        <PhoneLink number={phones[0].number} />
+                      ) : c.email ? (
+                        <MailLink email={c.email} />
+                      ) : (
+                        "—"
+                      )}
                     </td>
                   </tr>
                 );

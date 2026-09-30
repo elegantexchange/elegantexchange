@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, formatApiError, fmtDate } from "@/lib/api";
+import AddressField from "@/components/AddressField";
+import { formatPhoneInput } from "@/lib/consignorForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -156,8 +158,8 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
       return toast.error("Choose or create a consignor first");
     if (step === 1 && !canLeaveStep1)
       return toast.error("Add at least one item with description and price");
-    if (step === 1 && mode === "house") return submitHouse();
-    if (step === 2) return submit();
+    if (step === 1 && mode === "house") return submitHouse(false);
+    if (step === 2) return submit(false);
     setStep(step + 1);
   };
   const back = () => {
@@ -174,7 +176,22 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
       : STEPS;
   const visibleStepIndex = mode === "house" ? 0 : step;
 
-  const submitHouse = async () => {
+  const finishIntake = (batch, printNow) => {
+    const n = batch.items.length;
+    const ids = batch.items.map((i) => i.item_id).join(",");
+    if (printNow && ids) {
+      toast.success(`${n} item${n === 1 ? "" : "s"} added`);
+      window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
+    } else {
+      toast.success(
+        `${n} item${n === 1 ? "" : "s"} added. Print the tags later from Inventory.`
+      );
+    }
+    onDone?.();
+    onClose();
+  };
+
+  const submitHouse = async (printNow) => {
     setBusy(true);
     try {
       const { data: batch } = await api.post("/inventory/batch", {
@@ -184,13 +201,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           asking_price: Number(i.asking_price),
         })),
       });
-      toast.success(
-        `${batch.items.length} house item${batch.items.length === 1 ? "" : "s"} added`
-      );
-      const ids = batch.items.map((i) => i.item_id).join(",");
-      window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      onDone?.();
-      onClose();
+      finishIntake(batch, printNow);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
     } finally {
@@ -198,7 +209,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
     }
   };
 
-  const submit = async () => {
+  const submit = async (printNow) => {
     if (sigRef.current?.isEmpty()) return toast.error("Please sign the agreement");
     setBusy(true);
     try {
@@ -228,12 +239,7 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           asking_price: Number(i.asking_price),
         })),
       });
-      toast.success(`${batch.items.length} item${batch.items.length === 1 ? "" : "s"} added`);
-      // 4) Open tag print
-      const ids = batch.items.map((i) => i.item_id).join(",");
-      window.open(`/print/tags?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      onDone?.();
-      onClose();
+      finishIntake(batch, printNow);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
     } finally {
@@ -368,26 +374,38 @@ function IntakeWizard({ onClose, onDone, presetConsignorId, presetMode }) {
           <ChevronLeft size={14} className="mr-1" />
           {step === 0 || (houseOnly && step === 1) ? "Cancel" : "Back"}
         </Button>
-        <Button
-          data-testid="intake-next"
-          onClick={next}
-          disabled={busy || (step === 2 && !canSubmit)}
-          className="ee-btn-label w-full sm:w-auto bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-        >
-          {step === 1 && mode === "house" ? (
-            <>
-              <Printer size={14} className="mr-1" /> Save house items
-            </>
-          ) : step === 2 ? (
-            <>
-              <Printer size={14} className="mr-1" /> Sign & Save
-            </>
-          ) : (
-            <>
-              Next <ChevronRight size={14} className="ml-1" />
-            </>
-          )}
-        </Button>
+        {step === 2 || (step === 1 && mode === "house") ? (
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="intake-print-now"
+              onClick={() => (mode === "house" ? submitHouse(true) : submit(true))}
+              disabled={busy || (step === 2 && !canSubmit)}
+              className="ee-btn-label w-full sm:w-auto"
+            >
+              <Printer size={14} className="mr-1" /> Print tags now
+            </Button>
+            <Button
+              type="button"
+              data-testid="intake-next"
+              onClick={() => (mode === "house" ? submitHouse(false) : submit(false))}
+              disabled={busy || (step === 2 && !canSubmit)}
+              className="ee-btn-label w-full sm:w-auto bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            >
+              {busy ? "Saving…" : "Save, print later"}
+            </Button>
+          </div>
+        ) : (
+          <Button
+            data-testid="intake-next"
+            onClick={next}
+            disabled={busy}
+            className="ee-btn-label w-full sm:w-auto bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+          >
+            Next <ChevronRight size={14} className="ml-1" />
+          </Button>
+        )}
       </div>
     </>
   );
@@ -465,8 +483,13 @@ function StepConsignor({
           <Field label="Phone">
             <Input
               value={newConsignor.phone}
+              inputMode="tel"
+              placeholder="(508) 555-0142"
               onChange={(e) =>
-                setNewConsignor({ ...newConsignor, phone: e.target.value })
+                setNewConsignor({
+                  ...newConsignor,
+                  phone: formatPhoneInput(e.target.value),
+                })
               }
             />
           </Field>
@@ -479,10 +502,11 @@ function StepConsignor({
             />
           </Field>
           <Field label="Address">
-            <Input
+            <AddressField
+              testId="new-intake-address"
               value={newConsignor.address}
-              onChange={(e) =>
-                setNewConsignor({ ...newConsignor, address: e.target.value })
+              onChange={(address) =>
+                setNewConsignor({ ...newConsignor, address })
               }
             />
           </Field>

@@ -238,6 +238,7 @@ export default function Inventory() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [tagsOnly, setTagsOnly] = useState(false);
   const [houseOnly, setHouseOnly] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [focusId, setFocusId] = useState(null);
@@ -294,10 +295,21 @@ export default function Inventory() {
     [items]
   );
 
+  const tagQueue = useMemo(
+    () =>
+      items.filter(
+        (i) =>
+          i.tags_printed === false &&
+          (i.status === "Active" || i.status === "Expired")
+      ),
+    [items]
+  );
+
   const filtered = useMemo(() => {
     const term = q.toLowerCase().trim();
     return items.filter((i) => {
       if (houseOnly && !isHouseItem(i)) return false;
+      if (tagsOnly && i.tags_printed !== false) return false;
       if (flaggedOnly && !(i.needs_review || (i.import_flags || []).length)) {
         return false;
       }
@@ -319,7 +331,7 @@ export default function Inventory() {
       }
       return i.status === statusFilter;
     });
-  }, [items, q, statusFilter, flaggedOnly, houseOnly, today, sevenAhead]);
+  }, [items, q, statusFilter, flaggedOnly, houseOnly, tagsOnly, today, sevenAhead]);
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -563,12 +575,19 @@ export default function Inventory() {
       testid: "chip-flagged",
       clear: () => setFlaggedOnly(false),
     },
+    tagsOnly && {
+      key: "tags",
+      label: tagQueue.length > 0 ? `Tags to print (${tagQueue.length})` : "Tags to print",
+      testid: "chip-tags",
+      clear: () => setTagsOnly(false),
+    },
   ].filter(Boolean);
 
   const clearAllFilters = () => {
     setStatusFilter("All");
     setHouseOnly(false);
     setFlaggedOnly(false);
+    setTagsOnly(false);
   };
 
   return (
@@ -592,6 +611,20 @@ export default function Inventory() {
             </p>
           </div>
           <div className="ee-page-actions shrink-0">
+            {tagQueue.length > 0 ? (
+              <Button
+                type="button"
+                data-testid="print-tag-queue"
+                className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] text-white hover:bg-[#6f1655] h-9 px-2.5"
+                onClick={() => printTags(tagQueue.map((i) => i.item_id))}
+              >
+                <Printer size={14} className="md:mr-1" />
+                <span className="hidden sm:inline">
+                  Print {tagQueue.length} tag{tagQueue.length === 1 ? "" : "s"}
+                </span>
+                <span className="sm:hidden">{tagQueue.length}</span>
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -699,6 +732,15 @@ export default function Inventory() {
                 <Home size={14} className="mr-2" />
                 In House
                 {houseCount > 0 ? ` (${houseCount})` : ""}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="filter-tags-btn"
+                onClick={() => setTagsOnly(true)}
+                className="text-[13px]"
+              >
+                <Printer size={14} className="mr-2" />
+                Tags to print
+                {tagQueue.length > 0 ? ` (${tagQueue.length})` : ""}
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="filter-flagged-inventory-btn"
@@ -871,6 +913,7 @@ export default function Inventory() {
                               : ""}
                           {" · "}
                           {i.status}
+                          {i.tags_printed === false ? " · tag waiting" : ""}
                         </div>
                       </div>
                       <div className="text-right shrink-0">

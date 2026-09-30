@@ -399,6 +399,7 @@ async def create_item(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "operator_name": operator_from_request(request),
         "created_by": _u.get("email") or "",
+        "tags_printed": False,
     }
     await db.inventory.insert_one(doc)
     doc.pop("_id", None)
@@ -456,6 +457,7 @@ async def create_items_batch(
             "created_at": datetime.now(timezone.utc).isoformat(),
             "operator_name": operator_from_request(request),
             "created_by": _u.get("email") or "",
+            "tags_printed": False,
         }
         await db.inventory.insert_one(doc)
         doc.pop("_id", None)
@@ -758,6 +760,23 @@ async def import_inventory(
         flagged_rows=flagged_rows,
         created_consignor_ids=created_consignor_ids,
     )
+
+
+@router.post("/tags-printed")
+async def mark_tags_printed(
+    payload: dict, request: Request, _u: dict = Depends(get_current_user)
+):
+    """Mark hangtags as printed so they leave the bulk print queue."""
+    db = request.app.state.db
+    ids = [str(i).strip() for i in (payload.get("item_ids") or []) if str(i).strip()]
+    if not ids:
+        return {"updated": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.inventory.update_many(
+        {"item_id": {"$in": ids}},
+        {"$set": {"tags_printed": True, "tags_printed_at": now}},
+    )
+    return {"updated": result.modified_count}
 
 
 @router.get("/{item_id}")
