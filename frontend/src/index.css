@@ -435,10 +435,19 @@ body {
     opacity: 0.85;
 }
 
+.ee-hangtag-facts {
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
 .ee-hangtag-field {
     text-align: center;
     width: 100%;
-    padding: 0.15rem 0.15rem 0.35rem;
+    padding: 0.2rem 0.15rem 0.35rem;
 }
 
 .ee-hangtag-label {
@@ -455,42 +464,46 @@ body {
 }
 
 .ee-hangtag-size {
-    font-size: 1.55rem;
+    font-size: 1.85rem;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.02em;
 }
 
-.ee-hangtag-style {
-    font-size: 0.95rem;
-    font-weight: 500;
-    line-height: 1.2;
-    padding: 0 0.15rem;
-}
-
 .ee-hangtag-price {
-    font-size: 1.2rem;
+    font-size: 1.45rem;
     font-weight: 600;
     letter-spacing: 0.01em;
 }
 
 .ee-hangtag-rule {
-    width: 100%;
+    width: 72%;
     height: 1px;
     background: #d5cdc2;
-    margin: 0.1rem 0 0.15rem;
+    margin: 0.35rem 0;
 }
 
 .ee-hangtag-dots {
     width: 100%;
     border-top: 1px dotted #b8aea1;
-    margin: 0.35rem 0 0.45rem;
+    margin: 0 0 0.45rem;
 }
 
 .ee-hangtag-meta {
     text-align: center;
-    margin-top: auto;
+    margin-top: 0;
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.ee-hangtag-barcode {
+    display: block;
+    margin: 0.02rem auto 0.16rem;
+    max-width: 100%;
+    height: auto;
+    flex: none;
 }
 
 .ee-hangtag-id {

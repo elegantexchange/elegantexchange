@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kenco silver stock — consignment hangtag</title>
+  <style>
+    :root {
+      --s: 2.4;
+      --stock: #f3f1ec;
+      --ink: #000000;
+      --tag-w: 1.1875in;
+      --tag-h: 3.375in;
+      --sheet-w: 2.375in;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e6e1d8;
+      color: #1c1a17;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 22px 28px 56px;
+    }
+    .kicker {
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #8a8176;
+    }
+    h1 {
+      font-weight: 700;
+      font-size: 26px;
+      line-height: 1.05;
+      margin: 6px 0 8px;
+      letter-spacing: -0.02em;
+    }
+    .lede {
+      max-width: 740px;
+      margin: 0 0 28px;
+      font-size: 13.5px;
+      font-weight: 500;
+      line-height: 1.45;
+      color: #3a342e;
+    }
+    .options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 36px 32px;
+      align-items: flex-start;
+    }
+    .opt { width: calc(var(--pw) * var(--s)); }
+    .opt-name {
+      margin: 0 0 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .opt-name .letter {
+      display: inline-block;
+      margin-right: 8px;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8a8176;
+    }
+    .opt-name span.note {
+      display: block;
+      margin-top: 3px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.4;
+      color: #6e675f;
+    }
+    .scaler {
+      width: calc(var(--pw) * var(--s));
+      height: calc(var(--ph) * var(--s));
+    }
+    .scaler-inner {
+      width: var(--pw);
+      height: var(--ph);
+      transform: scale(var(--s));
+      transform-origin: top left;
+    }
+    .sheet {
+      width: var(--sheet-w);
+      height: var(--tag-h);
+      position: relative;
+      display: flex;
+      background-color: var(--stock);
+      background-image: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0) 22%);
+      box-shadow:
+        0 16px 36px rgba(40, 36, 30, 0.16),
+        0 0 0 1px rgba(70, 64, 56, 0.12);
+    }
+    .perf {
+      position: absolute;
+      left: var(--tag-w);
+      top: 0;
+      bottom: 0;
+      border-left: 1px dashed rgba(20, 20, 20, 0.55);
+      z-index: 3;
+      pointer-events: none;
+    }
+    .tag {
+      width: var(--tag-w);
+      height: var(--tag-h);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      text-align: left;
+      color: var(--ink);
+      background-color: var(--stock);
+      background-image: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 18%);
+      box-shadow:
+        0 16px 36px rgba(40, 36, 30, 0.16),
+        0 0 0 1px rgba(70, 64, 56, 0.12);
+      overflow: hidden;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 700;
+      line-height: 1.05;
+    }
+    .tag.wide { width: var(--sheet-w); }
+    .sheet .tag {
+      background: transparent;
+      box-shadow: none;
+    }
+    .cue {
+      position: absolute;
+      top: 0.042in;
+      left: 50%;
+      width: 0.062in;
+      height: 0.062in;
+      margin-left: -0.031in;
+      border: 0.55pt solid var(--ink);
+      border-radius: 50%;
+      z-index: 2;
+    }
+    .head,
+    .body,
+    .shop,
+    .row,
+    .brand,
+    .color,
+    .description,
+    .price,
+    .size,
+    .bars {
+      width: 100%;
+      flex: none;
+    }
+    .head,
+    .body {
+      display: flex;
+      flex-direction: column;
+    }
+    .body { margin-top: auto; }
+    .shop {
+      white-space: nowrap;
+      letter-spacing: -0.015em;
+      line-height: 1.05;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.04in;
+    }
+    .sku,
+    .category {
+      min-width: 0;
+    }
+    .date,
+    .side {
+      flex: none;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .description {
+      line-height: 1.15;
+      max-height: 2.35em;
+      overflow: hidden;
+    }
+    .tail {
+      width: 100%;
+      margin-top: auto;
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .bars { line-height: 0; }
+    .barcode { display: block; }
+
+    /* Full card, 2.375in — primary. Type stays plain; size is the only large line. */
+    .tag.wide {
+      padding: 0.145in 0.09in 0.04in;
+    }
+    .tag.wide .head { gap: 0.042in; }
+    .tag.wide .body { gap: 0.04in; }
+    .tag.wide .shop { font-size: 11.5pt; }
+    .tag.wide .sku,
+    .tag.wide .date,
+    .tag.wide .category,
+    .tag.wide .side { font-size: 10pt; font-weight: 700; }
+    .tag.wide .brand { font-size: 12.5pt; }
+    .tag.wide .color,
+    .tag.wide .price { font-size: 10.5pt; font-weight: 700; }
+    .tag.wide .description { font-size: 13pt; font-weight: 700; line-height: 1.18; }
+    .tag.wide .size {
+      font-size: 26pt;
+      line-height: 0.95;
+      margin-bottom: 0.04in;
+    }
+
+    /* Perforated half, 1.1875in. Smaller type so the same lines still fit. */
+    .tag.narrow {
+      padding: 0.128in 0.046in 0.03in;
+    }
+    .tag.narrow .head { gap: 0.03in; }
+    .tag.narrow .body { gap: 0.028in; }
+    .tag.narrow .shop { font-size: 6pt; letter-spacing: -0.025em; }
+    .tag.narrow .sku,
+    .tag.narrow .date,
+    .tag.narrow .category,
+    .tag.narrow .side { font-size: 7pt; }
+    .tag.narrow .brand { font-size: 8.5pt; }
+    .tag.narrow .color,
+    .tag.narrow .price { font-size: 7.5pt; }
+    .tag.narrow .description { font-size: 8pt; line-height: 1.16; }
+    .tag.narrow .size {
+      font-size: 20pt;
+      line-height: 0.95;
+      margin-bottom: 0.028in;
+    }
+
+    .fine {
+      margin: 28px 0 0;
+      max-width: 740px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.45;
+      color: #5c564e;
+    }
+    @media print {
+      body { background: #fff; }
+      .page { padding: 0; max-width: none; }
+      .no-print { display: none !important; }
+      .scaler { width: var(--pw); height: var(--ph); }
+      .scaler-inner { transform: none; }
+      .opt { width: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="no-print">
+      <div class="kicker">Stock preview · not the live print sheet</div>
+      <h1>Consignment hangtag</h1>
+      <p class="lede" id="lede">
+        One left-aligned card for The Elegant Exchange, black on silver-white.
+        The wide tag is the primary, <strong>2.375″ × 3.375″</strong>, with no center perforation.
+        The same stack is then shown on the perforated half, <strong>1.1875″ × 3.375″</strong>,
+        and as a two-up pair so the perforation is visible.
+      </p>
+    </div>
+
+    <div class="options" id="options"></div>
+    <p class="fine" id="fine"></p>
+  </div>
+
+  <script type="module">
+    import { code128Layout } from "/code128.js";
+
+    const SHOP = "THE ELEGANT EXCHANGE";
+
+    const tops = {
+      item_id: "2041-03",
+      date_in: "2026-09-12",
+      category: "Tops",
+      condition: "Like New",
+      brand: "Madewell",
+      color: "Black & White",
+      description: "NWOT striped one button cardigan",
+      size: "S",
+      asking_price: 48,
+    };
+    const shoes = {
+      item_id: "2047-05",
+      date_in: "2026-09-18",
+      category: "Shoes",
+      condition: "Excellent",
+      brand: "Cole Haan",
+      color: "Black",
+      description: "Patent heeled mules, lightly worn",
+      size: "8",
+      asking_price: 14.95,
+    };
+
+    function esc(value) {
+      return String(value).replace(/[&<>"]/g, (ch) => {
+        if (ch === "&") return "&amp;";
+        if (ch === "<") return "&lt;";
+        if (ch === ">") return "&gt;";
+        return "&quot;";
+      });
+    }
+
+    function money(n) {
+      if (n == null || n === "") return "";
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "";
+      const cents = Math.round(v * 100) % 100;
+      return v.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: cents ? 2 : 0,
+        maximumFractionDigits: cents ? 2 : 0,
+      });
+    }
+
+    function formatDate(raw) {
+      const text = String(raw || "").trim();
+      const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return "";
+      return `${match[2]}/${match[3]}/${match[1]}`;
+    }
+
+    function barcodeSvg(text, maxWidthIn) {
+      const layout = code128Layout(text, { maxWidthIn, barHeightIn: 0.22 });
+      const label = esc(text);
+      const rects = layout.rects
+        .map((bar) => `<rect x="${bar.x}" y="0" width="${bar.w}" height="${layout.heightUnits}" fill="#000"/>`)
+        .join("");
+      const svg = `<svg class="barcode" xmlns="http://www.w3.org/2000/svg" width="${layout.widthIn}in" height="${layout.heightIn}in" viewBox="0 0 ${layout.modules} ${layout.heightUnits}" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="Code 128 ${label}" data-barcode-value="${label}" data-orientation="horizontal">${rects}</svg>`;
+      return { layout, svg };
+    }
+
+    function tag(item, width) {
+      const price = money(item.asking_price);
+      const date = formatDate(item.date_in || item.created_at);
+      const condition = String(item.condition || "").trim();
+      const brand = String(item.brand || "").trim();
+      const color = String(item.color || "").trim();
+      const description = String(item.description || "").trim();
+      const category = String(item.category || "").trim();
+      const size = String(item.size || "").trim();
+      const maxBar = width === "wide" ? 2.1 : 1.05;
+      const { svg } = barcodeSvg(item.item_id, maxBar);
+      const dateHtml = date ? `<div class="date">${esc(date)}</div>` : "";
+      const sideHtml = condition ? `<div class="side">${esc(condition)}</div>` : "";
+      const brandHtml = brand ? `<div class="brand">${esc(brand)}</div>` : "";
+      const colorHtml = color ? `<div class="color">${esc(color)}</div>` : "";
+      const descHtml = description ? `<div class="description">${esc(description)}</div>` : "";
+      const priceHtml = price ? `<div class="price">${esc(price)}</div>` : "";
+      const sizeHtml = size ? `<div class="size">${esc(size)}</div>` : "";
+
+      return `<article class="tag ${width}" data-layout="${width}" data-sku="${esc(item.item_id)}" data-date="${esc(date)}" data-category="${esc(category)}" data-condition="${esc(condition)}" data-brand="${esc(brand)}" data-color="${esc(color)}" data-description="${esc(description)}" data-price="${esc(price)}" data-size="${esc(size)}">
+        <div class="cue" aria-hidden="true"></div>
+        <div class="head">
+          <div class="shop">${esc(SHOP)}</div>
+          <div class="row">${`<div class="sku">${esc(item.item_id)}</div>`}${dateHtml}</div>
+          <div class="row">${category ? `<div class="category">${esc(category)}</div>` : `<div class="category"></div>`}${sideHtml}</div>
+          ${brandHtml}
+          ${colorHtml}
+        </div>
+        <div class="body">
+          ${descHtml}
+          ${priceHtml}
+        </div>
+        <div class="tail">
+          ${sizeHtml}
+          <div class="bars">${svg}</div>
+        </div>
+      </article>`;
+    }
+
+    function mount(id, letter, title, note, inner, w, h) {
+      const el = document.createElement("div");
+      el.className = "opt";
+      el.id = id;
+      el.style.setProperty("--pw", w);
+      el.innerHTML = `
+        <p class="opt-name"><span class="letter">${letter}</span>${title}<span class="note">${note}</span></p>
+        <div class="scaler" style="--pw: ${w}; --ph: ${h}">
+          <div class="scaler-inner">${inner}</div>
+        </div>`;
+      document.getElementById("options").appendChild(el);
+    }
+
+    mount(
+      "tag-full",
+      "1",
+      "Full card",
+      "Primary. 2.375″ × 3.375″. No center perforation. 2041-03.",
+      tag(tops, "wide"),
+      "2.375in",
+      "3.375in",
+    );
+    mount(
+      "tag-half",
+      "2",
+      "Perforated half",
+      "Same stack on 1.1875″ × 3.375″. Type is smaller so the lines still fit. 2041-03.",
+      tag(tops, "narrow"),
+      "1.1875in",
+      "3.375in",
+    );
+    mount(
+      "tag-pair",
+      "3",
+      "Two up",
+      "2.375″ × 3.375″ with the perforation between 2041-03 and 2047-05.",
+      `<div class="sheet">${tag(tops, "narrow")}${tag(shoes, "narrow")}<div class="perf"></div></div>`,
+      "2.375in",
+      "3.375in",
+    );
+
+    const flat = code128Layout("2041-03", { maxWidthIn: 2.1, barHeightIn: 0.22 });
+    const narrowBar = code128Layout("2041-03", { maxWidthIn: 1.05, barHeightIn: 0.22 });
+    const scale = getComputedStyle(document.documentElement).getPropertyValue("--s").trim();
+    document.getElementById("lede").insertAdjacentHTML("beforeend", ` Drawn at ${scale}×.`);
+    document.getElementById("fine").textContent =
+      `Shop name is set type, not the logo. ` +
+      `SKU is item_id. Date is date_in, printed MM/DD/YYYY. ` +
+      `Category, color, description, size, and asking_price print as stored. ` +
+      `Condition prints in full on the right of the category line (Like New, Excellent); it is not shortened to a letter. ` +
+      `Brand prints only when the piece has one. ` +
+      `Price stays the same weight as the other facts. Size is the largest line. ` +
+      `Barcode is horizontal Code 128 of the SKU, ${flat.modules} modules, about ${flat.widthIn.toFixed(2)}″ on the wide card and ${narrowBar.widthIn.toFixed(2)}″ on the half, bar height ${flat.heightIn.toFixed(2)}″. ` +
+      `No second SKU under the bars, no QR, no consignor line. The hole mark is a printed circle about 0.06″.`;
+  </script>
+</body>
+</html>

@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Flag, Home, LayoutGrid, List, Pencil, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { Camera, Flag, Home, LayoutGrid, List, Pencil, Plus, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -32,10 +32,16 @@ import {
 import { Label } from "@/components/ui/label";
 import { CATEGORIES, CONDITIONS } from "@/lib/brand";
 import { toast } from "sonner";
+import DateField, { retainDatePopover } from "@/components/DateField";
 import ItemScanDialog from "@/components/ItemScanDialog";
 import ItemMediaGallery from "@/components/ItemMediaGallery";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerOrAdmin, roleOf } from "@/lib/auth";
+
+/** Scan stays wired up; the header button is off until the team turns it back on. */
+const SHOW_ITEM_SCAN = false;
+
+const RESERVED_CONSIGNOR_IDS = new Set(["2999", "0", "house", "boutique"]);
 
 const ITEM_STATUSES = ["Active", "Sold", "Expired", "Donated", "Returned"];
 
@@ -229,6 +235,360 @@ function initials(desc) {
     .toUpperCase();
 }
 
+function todayIso() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function blankAddForm() {
+  return {
+    description: "",
+    category: "Other",
+    size: "",
+    color: "",
+    condition: "Excellent",
+    asking_price: "",
+    date_in: todayIso(),
+  };
+}
+
+function consignorNeedsName(c) {
+  const flags = c?.import_flags || [];
+  if (flags.includes("missing_name")) return true;
+  const name = (c?.full_name || "").trim();
+  if (!name || name.length < 2) return true;
+  if (/^\(name needed\b/i.test(name)) return true;
+  if (/^unassigned\b/i.test(name)) return true;
+  if (/^consignor\s+\d+/i.test(name)) return true;
+  return false;
+}
+
+function consignorOptionLabel(c) {
+  if (consignorNeedsName(c)) return `Needs name · ${c.consignor_id}`;
+  return `${c.full_name} · ${c.consignor_id}`;
+}
+
+function isReservedConsignorNumber(raw) {
+  return RESERVED_CONSIGNOR_IDS.has(String(raw || "").trim().toLowerCase());
+}
+
+function AddInventoryDialog({ open, onOpenChange, consignors, onCreated }) {
+  const [form, setForm] = useState(blankAddForm);
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(blankAddForm());
+    setQuery("");
+    setPicked(null);
+    setBusy(false);
+  }, [open]);
+
+  const term = query.trim();
+  const matches = useMemo(() => {
+    if (!term || picked) return [];
+    const t = term.toLowerCase();
+    return consignors
+      .filter((c) => {
+        const name = (c.full_name || "").toLowerCase();
+        const id = String(c.consignor_id || "").toLowerCase();
+        return name.includes(t) || id.includes(t);
+      })
+      .slice(0, 8);
+  }, [consignors, term, picked]);
+
+  const exact = consignors.find((c) => String(c.consignor_id) === term);
+  const offerNew =
+    !picked && /^\d{4}$/.test(term) && !exact && !isReservedConsignorNumber(term);
+  const reservedTyped = !picked && isReservedConsignorNumber(term);
+
+  const setField = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    const description = form.description.trim();
+    if (!description) {
+      toast.error("Description is required");
+      return;
+    }
+    const price = Number(form.asking_price);
+    if (!(price > 0)) {
+      toast.error("Enter a price greater than 0");
+      return;
+    }
+
+    let target = picked;
+    if (!target && exact) {
+      target = {
+        mode: "existing",
+        id: exact.consignor_id,
+        label: consignorOptionLabel(exact),
+      };
+    } else if (!target && offerNew) {
+      target = { mode: "new", id: term };
+    }
+    if (!target) {
+      toast.error(
+        reservedTyped
+          ? "That number is reserved"
+          : "Choose a consignor, or enter a new 4-digit number"
+      );
+      return;
+    }
+
+    setBusy(true);
+    try {
+      let cid = target.id;
+      if (target.mode === "new") {
+        const { data: created } = await api.post("/consignors", {
+          full_name: `(Name needed · ${target.id})`,
+          consignor_id: target.id,
+          payout_method: "Cash",
+          import_flags: ["missing_name"],
+        });
+        cid = created.consignor_id;
+      }
+      const { data } = await api.post("/inventory", {
+        consignor_id: cid,
+        description,
+        category: form.category || "Other",
+        size: form.size.trim(),
+        condition: form.condition || "",
+        asking_price: price,
+        date_in: form.date_in || undefined,
+        color: form.color.trim(),
+      });
+      toast.success(`Saved ${data.item_id}`);
+      onCreated(data);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        data-testid="add-inventory-dialog"
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        onPointerDownOutside={retainDatePopover}
+        onInteractOutside={retainDatePopover}
+        onFocusOutside={retainDatePopover}
+      >
+        <DialogHeader>
+          <DialogTitle>Add item</DialogTitle>
+          <DialogDescription>
+            Attach it to a consignor. A new number can be saved without a name.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-3">
+          <div>
+            <Label className="text-[10px] tracking-[0.14em] uppercase">Consignor</Label>
+            {picked ? (
+              <div className="mt-1 flex items-center justify-between gap-2 rounded-[8px] border border-[var(--ee-sidebar-border)] px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">
+                    {picked.mode === "new"
+                      ? `${picked.id} · Needs name`
+                      : picked.label}
+                  </div>
+                  {picked.mode === "new" ? (
+                    <p className="text-[12px] text-neutral-500">
+                      Name can be added later from the need-review list.
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  data-testid="add-inventory-consignor-clear"
+                  className="text-[12px] font-semibold text-[var(--ee-magenta)] shrink-0"
+                  onClick={() => {
+                    setPicked(null);
+                    setQuery("");
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <>
+                <Input
+                  data-testid="add-inventory-consignor"
+                  value={query}
+                  autoFocus
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name or number"
+                  className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+                />
+                {term ? (
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[8px] bg-[var(--ee-panel)]">
+                    {matches.map((c) => (
+                      <button
+                        key={c.consignor_id}
+                        type="button"
+                        data-testid={`add-inventory-pick-${c.consignor_id}`}
+                        onClick={() =>
+                          setPicked({
+                            mode: "existing",
+                            id: c.consignor_id,
+                            label: consignorOptionLabel(c),
+                          })
+                        }
+                        className="w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)]"
+                      >
+                        <span className="font-semibold">{consignorOptionLabel(c)}</span>
+                      </button>
+                    ))}
+                    {offerNew ? (
+                      <button
+                        type="button"
+                        data-testid="add-inventory-new-consignor"
+                        onClick={() => setPicked({ mode: "new", id: term })}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--ee-magenta-soft)]"
+                      >
+                        <span className="font-semibold">Add {term}</span>
+                        <span className="text-neutral-500"> · name later</span>
+                      </button>
+                    ) : null}
+                    {reservedTyped ? (
+                      <p className="px-3 py-2 text-sm text-neutral-500">
+                        That number is reserved.
+                      </p>
+                    ) : null}
+                    {!matches.length && !offerNew && !reservedTyped ? (
+                      <p className="px-3 py-2 text-sm text-neutral-500">
+                        No match. Enter a 4-digit number to add one.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-[10px] tracking-[0.14em] uppercase">Description</Label>
+            <Input
+              data-testid="add-inventory-description"
+              value={form.description}
+              onChange={(e) => setField({ description: e.target.value })}
+              className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Category</Label>
+              <Select
+                value={form.category}
+                onValueChange={(v) => setField({ category: v })}
+              >
+                <SelectTrigger data-testid="add-inventory-category" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Condition</Label>
+              <Select
+                value={form.condition}
+                onValueChange={(v) => setField({ condition: v })}
+              >
+                <SelectTrigger data-testid="add-inventory-condition" className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONDITIONS.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Size</Label>
+              <Input
+                data-testid="add-inventory-size"
+                value={form.size}
+                onChange={(e) => setField({ size: e.target.value })}
+                className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Color</Label>
+              <Input
+                data-testid="add-inventory-color"
+                value={form.color}
+                onChange={(e) => setField({ color: e.target.value })}
+                className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Price</Label>
+              <Input
+                data-testid="add-inventory-price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.asking_price}
+                onChange={(e) => setField({ asking_price: e.target.value })}
+                className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] tracking-[0.14em] uppercase">Date in</Label>
+              <DateField
+                value={form.date_in}
+                onChange={(v) => setField({ date_in: v })}
+                testId="add-inventory-date"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              className="ee-btn-label text-neutral-600"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              data-testid="add-inventory-save"
+              disabled={busy}
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+            >
+              {busy ? "Saving…" : "Add item"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Inventory() {
   const { user } = useAuth();
   const canDelete = isManagerOrAdmin(user);
@@ -244,6 +604,7 @@ export default function Inventory() {
   const [focusId, setFocusId] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanSave, setScanSave] = useState(null);
   const [scanAssign, setScanAssign] = useState("existing");
@@ -627,15 +988,26 @@ export default function Inventory() {
             ) : null}
             <Button
               type="button"
-              variant="ghost"
-              data-testid="inventory-scan-item-btn"
-              className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
-              onClick={() => setScanOpen(true)}
-              title="Scan item"
+              data-testid="add-inventory-btn"
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white h-9 px-3 rounded-[8px]"
+              onClick={() => setAddOpen(true)}
             >
-              <Camera size={14} className="md:mr-1" />
-              <span className="hidden lg:inline">Scan</span>
+              <Plus size={14} className="md:mr-1" />
+              <span className="hidden sm:inline">Add</span>
             </Button>
+            {SHOW_ITEM_SCAN ? (
+              <Button
+                type="button"
+                variant="ghost"
+                data-testid="inventory-scan-item-btn"
+                className="ee-btn-label rounded-[8px] text-neutral-600 h-9 px-2.5"
+                onClick={() => setScanOpen(true)}
+                title="Scan item"
+              >
+                <Camera size={14} className="md:mr-1" />
+                <span className="hidden lg:inline">Scan</span>
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -1309,6 +1681,22 @@ export default function Inventory() {
           ) : null}
         </AnimatePresence>
       </div>
+
+      <AddInventoryDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        consignors={consignors}
+        onCreated={async (item) => {
+          setAddOpen(false);
+          const [inv, cons] = await Promise.all([
+            api.get("/inventory"),
+            api.get("/consignors"),
+          ]);
+          setItems(inv.data);
+          setConsignors(cons.data);
+          setFocusId(item.item_id);
+        }}
+      />
 
       <ItemScanDialog
         open={scanOpen}

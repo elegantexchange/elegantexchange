@@ -61,11 +61,11 @@ function stepsForRole(role) {
       pointer: "left",
     },
     {
-      id: "scan-item",
+      id: "add-item",
       path: "/inventory",
-      target: '[data-testid="inventory-scan-item-btn"]',
-      title: "Scan item",
-      body: "Photograph a piece and tag to draft inventory quickly — review, then save.",
+      target: '[data-testid="add-inventory-btn"]',
+      title: "Add item",
+      body: "Add a piece by hand and attach it to a consignor — a new number can be saved without a name.",
       pointer: "top",
     },
     {
