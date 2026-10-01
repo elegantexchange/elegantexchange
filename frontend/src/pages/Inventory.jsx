@@ -383,7 +383,7 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated }) {
         <DialogHeader>
           <DialogTitle>Add item</DialogTitle>
           <DialogDescription>
-            Attach it to a consignor. A new number can be saved without a name.
+            Choose who this piece belongs to.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
