@@ -274,7 +274,34 @@ function isReservedConsignorNumber(raw) {
   return RESERVED_CONSIGNOR_IDS.has(String(raw || "").trim().toLowerCase());
 }
 
-function AddInventoryDialog({ open, onOpenChange, consignors, onCreated }) {
+function blankBulkRow() {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    description: "",
+    category: "",
+    size: "",
+    color: "",
+    price: "",
+  };
+}
+
+/** Local placeholder only. Does not ask the server for the next id. */
+function previewItemId(consignorId, items, offset) {
+  const cid = String(consignorId || "").trim();
+  if (!cid) return "";
+  const escaped = cid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}-(\\d+)$`);
+  let max = 0;
+  for (const item of items || []) {
+    const match = String(item?.item_id || "").match(re);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${cid}-${String(max + 1 + offset).padStart(2, "0")}`;
+}
+
+function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk }) {
   const [form, setForm] = useState(blankAddForm);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(null);
@@ -383,7 +410,7 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated }) {
         <DialogHeader>
           <DialogTitle>Add item</DialogTitle>
           <DialogDescription>
-            Choose who this piece belongs to.
+            Define the piece and who it belongs to.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
@@ -564,26 +591,307 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated }) {
             </div>
           </div>
 
+          <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between sm:space-x-0">
+            <Button
+              type="button"
+              variant="ghost"
+              data-testid="bulk-add-btn"
+              className="ee-btn-label mr-auto h-auto px-0 text-[var(--ee-magenta)] font-medium hover:bg-transparent hover:text-[var(--ee-magenta)]"
+              onClick={onBulk}
+              disabled={busy}
+            >
+              Bulk
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="ee-btn-label text-neutral-600"
+                onClick={() => onOpenChange(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                data-testid="add-inventory-save"
+                disabled={busy}
+                className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              >
+                {busy ? "Saving…" : "Add item"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const fieldLabel = "text-[10px] tracking-[0.14em] uppercase";
+const fieldInput = "h-9 rounded-[8px] border-[var(--ee-sidebar-border)]";
+
+function BulkAddDialog({ open, onOpenChange, consignors, items }) {
+  const [rows, setRows] = useState(() => [blankBulkRow(), blankBulkRow(), blankBulkRow()]);
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState(null);
+  const [dateIn, setDateIn] = useState(todayIso);
+
+  useEffect(() => {
+    if (!open) return;
+    setRows([blankBulkRow(), blankBulkRow(), blankBulkRow()]);
+    setQuery("");
+    setPicked(null);
+    setDateIn(todayIso());
+  }, [open]);
+
+  const term = query.trim();
+  const matches = useMemo(() => {
+    if (!term || picked) return [];
+    const t = term.toLowerCase();
+    return consignors
+      .filter((c) => {
+        const name = (c.full_name || "").toLowerCase();
+        const id = String(c.consignor_id || "").toLowerCase();
+        return name.includes(t) || id.includes(t);
+      })
+      .slice(0, 8);
+  }, [consignors, term, picked]);
+
+  const exact = consignors.find((c) => String(c.consignor_id) === term);
+  const offerNew =
+    !picked && /^\d{4}$/.test(term) && !exact && !isReservedConsignorNumber(term);
+  const reservedTyped = !picked && isReservedConsignorNumber(term);
+
+  const consignorNumber = picked?.id
+    ? String(picked.id)
+    : /^\d{4}$/.test(term) && !isReservedConsignorNumber(term)
+      ? term
+      : "";
+
+  const patchRow = (key, patch) =>
+    setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        data-testid="bulk-add-dialog"
+        className="max-w-4xl max-h-[90vh] overflow-y-auto"
+        onPointerDownOutside={retainDatePopover}
+        onInteractOutside={retainDatePopover}
+        onFocusOutside={retainDatePopover}
+      >
+        <DialogHeader>
+          <DialogTitle>Add several</DialogTitle>
+          <DialogDescription>One consignor, then a row for each piece.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className={fieldLabel}>Consignor</Label>
+            {picked ? (
+              <div className="mt-1 flex items-center justify-between gap-2 rounded-[8px] border border-[var(--ee-sidebar-border)] px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">
+                    {picked.mode === "new" ? `${picked.id} · Needs name` : picked.label}
+                  </div>
+                  {picked.mode === "new" ? (
+                    <p className="text-[12px] text-neutral-500">
+                      Name can be added later from the need-review list.
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  data-testid="bulk-add-consignor-clear"
+                  className="text-[12px] font-semibold text-[var(--ee-magenta)] shrink-0"
+                  onClick={() => {
+                    setPicked(null);
+                    setQuery("");
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <>
+                <Input
+                  data-testid="bulk-add-consignor"
+                  value={query}
+                  autoFocus
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name or number"
+                  className={`mt-1 ${fieldInput}`}
+                />
+                {term ? (
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-[var(--ee-sidebar-border)] rounded-[8px] bg-[var(--ee-panel)]">
+                    {matches.map((c) => (
+                      <button
+                        key={c.consignor_id}
+                        type="button"
+                        data-testid={`bulk-add-pick-${c.consignor_id}`}
+                        onClick={() =>
+                          setPicked({
+                            mode: "existing",
+                            id: c.consignor_id,
+                            label: consignorOptionLabel(c),
+                          })
+                        }
+                        className="w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)]"
+                      >
+                        <span className="font-semibold">{consignorOptionLabel(c)}</span>
+                      </button>
+                    ))}
+                    {offerNew ? (
+                      <button
+                        type="button"
+                        data-testid="bulk-add-new-consignor"
+                        onClick={() => setPicked({ mode: "new", id: term })}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--ee-magenta-soft)]"
+                      >
+                        <span className="font-semibold">Add {term}</span>
+                        <span className="text-neutral-500"> · name later</span>
+                      </button>
+                    ) : null}
+                    {reservedTyped ? (
+                      <p className="px-3 py-2 text-sm text-neutral-500">That number is reserved.</p>
+                    ) : null}
+                    {!matches.length && !offerNew && !reservedTyped ? (
+                      <p className="px-3 py-2 text-sm text-neutral-500">
+                        No match. Enter a 4-digit number to add one.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+
+          <div className="max-w-[220px]">
+            <Label className={fieldLabel}>Date in</Label>
+            <DateField value={dateIn} onChange={setDateIn} testId="bulk-add-date" />
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="min-w-[680px] rounded-[8px] border border-[var(--ee-sidebar-border)]">
+              <div className="grid grid-cols-[4.75rem_minmax(0,1.5fr)_minmax(0,1.05fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.75fr)_1.75rem] gap-2 px-2 py-1.5 border-b border-[var(--ee-sidebar-border)] bg-black/[0.02]">
+                <span />
+                {["Description", "Category", "Size", "Color", "Price"].map((label) => (
+                  <Label key={label} className={fieldLabel}>
+                    {label}
+                  </Label>
+                ))}
+                <span />
+              </div>
+              {rows.map((row, index) => {
+                const hint = previewItemId(consignorNumber, items, index);
+                return (
+                  <div
+                    key={row.key}
+                    className="grid grid-cols-[4.75rem_minmax(0,1.5fr)_minmax(0,1.05fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.75fr)_1.75rem] gap-2 items-center px-2 py-1.5 border-b last:border-0 border-[var(--ee-sidebar-border)]"
+                  >
+                    <span
+                      data-testid={`bulk-row-id-${index}`}
+                      className="text-[11px] tracking-wide text-neutral-400 tabular-nums"
+                    >
+                      {hint}
+                    </span>
+                    <Input
+                      aria-label="Description"
+                      data-testid={`bulk-add-description-${index}`}
+                      value={row.description}
+                      onChange={(e) => patchRow(row.key, { description: e.target.value })}
+                      className={fieldInput}
+                    />
+                    <Select
+                      value={row.category}
+                      onValueChange={(v) => patchRow(row.key, { category: v })}
+                    >
+                      <SelectTrigger
+                        aria-label="Category"
+                        data-testid={`bulk-add-category-${index}`}
+                        className={fieldInput}
+                      >
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      aria-label="Size"
+                      data-testid={`bulk-add-size-${index}`}
+                      value={row.size}
+                      onChange={(e) => patchRow(row.key, { size: e.target.value })}
+                      className={fieldInput}
+                    />
+                    <Input
+                      aria-label="Color"
+                      data-testid={`bulk-add-color-${index}`}
+                      value={row.color}
+                      onChange={(e) => patchRow(row.key, { color: e.target.value })}
+                      className={fieldInput}
+                    />
+                    <Input
+                      aria-label="Price"
+                      data-testid={`bulk-add-price-${index}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={row.price}
+                      onChange={(e) => patchRow(row.key, { price: e.target.value })}
+                      className={fieldInput}
+                    />
+                    <button
+                      type="button"
+                      data-testid={`bulk-add-remove-${index}`}
+                      aria-label="Remove row"
+                      disabled={rows.length <= 1}
+                      className="inline-flex h-8 w-7 items-center justify-center rounded-[6px] text-neutral-400 hover:text-neutral-700 hover:bg-black/[0.04] disabled:opacity-30 disabled:pointer-events-none"
+                      onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="bulk-add-row"
+            className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] h-9"
+            onClick={() => setRows((prev) => [...prev, blankBulkRow()])}
+          >
+            <Plus size={14} />
+            Add row
+          </Button>
+
           <DialogFooter>
             <Button
               type="button"
               variant="ghost"
               className="ee-btn-label text-neutral-600"
               onClick={() => onOpenChange(false)}
-              disabled={busy}
             >
               Cancel
             </Button>
             <Button
-              type="submit"
-              data-testid="add-inventory-save"
-              disabled={busy}
+              type="button"
+              data-testid="bulk-add-save"
               className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              onClick={() => toast.message("This is a preview. Nothing was saved.")}
             >
-              {busy ? "Saving…" : "Add item"}
+              Save pieces
             </Button>
           </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -605,6 +913,7 @@ export default function Inventory() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanSave, setScanSave] = useState(null);
   const [scanAssign, setScanAssign] = useState("existing");
@@ -1686,6 +1995,10 @@ export default function Inventory() {
         open={addOpen}
         onOpenChange={setAddOpen}
         consignors={consignors}
+        onBulk={() => {
+          setAddOpen(false);
+          setBulkOpen(true);
+        }}
         onCreated={async (item) => {
           setAddOpen(false);
           const [inv, cons] = await Promise.all([
@@ -1696,6 +2009,13 @@ export default function Inventory() {
           setConsignors(cons.data);
           setFocusId(item.item_id);
         }}
+      />
+
+      <BulkAddDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        consignors={consignors}
+        items={items}
       />
 
       <ItemScanDialog
