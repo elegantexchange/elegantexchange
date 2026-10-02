@@ -30,7 +30,12 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
-import { CATEGORIES, CONDITIONS } from "@/lib/brand";
+import {
+  CATEGORIES,
+  CONDITIONS,
+  categoryAllowsCustomSize,
+  sizesForCategory,
+} from "@/lib/brand";
 import { toast } from "sonner";
 import DateField, { retainDatePopover } from "@/components/DateField";
 import ItemScanDialog from "@/components/ItemScanDialog";
@@ -242,6 +247,116 @@ function todayIso() {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+const CUSTOM_SIZE = "__custom__";
+
+function capitalizeFirstLetter(value) {
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function titleCaseWords(value) {
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  return s
+    .split(" ")
+    .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
+
+function keepAddItemOpen(event) {
+  event.preventDefault();
+}
+
+function sanitizeDollarInput(raw) {
+  const cleaned = String(raw ?? "").replace(/[^0-9.]/g, "");
+  const [whole, ...rest] = cleaned.split(".");
+  if (!rest.length) return whole;
+  return `${whole}.${rest.join("").slice(0, 2)}`;
+}
+
+function DollarInput({ value, onChange, testId, disabled, className, ariaLabel }) {
+  const classes = className || "";
+  const margin = /\bmt-1\b/.test(classes) ? "mt-1" : "";
+  const inputClass = classes.replace(/\bmt-1\b/, "").trim();
+  return (
+    <div className={`relative ${margin}`}>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-sm text-neutral-500"
+      >
+        $
+      </span>
+      <Input
+        aria-label={ariaLabel}
+        data-testid={testId}
+        inputMode="decimal"
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onChange(sanitizeDollarInput(e.target.value))}
+        className={`pl-7 ${inputClass}`}
+      />
+    </div>
+  );
+}
+
+function SizeField({
+  category,
+  value,
+  onChange,
+  custom,
+  onCustomChange,
+  testId,
+  className,
+  ariaLabel,
+}) {
+  const options = sizesForCategory(category);
+  const canType = categoryAllowsCustomSize(category);
+  const showTyped = canType && (custom || (value && !options.includes(value)));
+  if (showTyped) {
+    return (
+      <Input
+        aria-label={ariaLabel}
+        data-testid={testId}
+        value={value}
+        placeholder="Type a size"
+        onChange={(e) => onChange(e.target.value)}
+        className={className}
+      />
+    );
+  }
+  const items =
+    value && !options.includes(value) ? [value, ...options] : options;
+  return (
+    <Select
+      value={items.includes(value) ? value : undefined}
+      onValueChange={(v) => {
+        if (v === CUSTOM_SIZE) {
+          onCustomChange(true);
+          onChange("");
+          return;
+        }
+        onCustomChange(false);
+        onChange(v);
+      }}
+    >
+      <SelectTrigger aria-label={ariaLabel} data-testid={testId} className={className}>
+        <SelectValue placeholder="Size" />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((s) => (
+          <SelectItem key={s} value={s}>
+            {s}
+          </SelectItem>
+        ))}
+        {canType ? (
+          <SelectItem value={CUSTOM_SIZE}>Type a size</SelectItem>
+        ) : null}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function blankAddForm() {
   return {
     description: "",
@@ -252,6 +367,7 @@ function blankAddForm() {
     asking_price: "",
     date_in: todayIso(),
     is_house: false,
+    sizeCustom: false,
   };
 }
 
@@ -283,6 +399,7 @@ function blankBulkRow() {
     size: "",
     color: "",
     price: "",
+    sizeCustom: false,
   };
 }
 
@@ -338,7 +455,7 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
 
   const save = async (e) => {
     e.preventDefault();
-    const description = form.description.trim();
+    const description = titleCaseWords(form.description);
     if (!description) {
       toast.error("Description is required");
       return;
@@ -381,7 +498,7 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
         condition: form.condition || "",
         asking_price: price,
         date_in: form.date_in || undefined,
-        color: form.color.trim(),
+        color: capitalizeFirstLetter(form.color),
         is_house: inHouse,
       };
       if (!inHouse) {
@@ -412,8 +529,8 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
       <DialogContent
         data-testid="add-inventory-dialog"
         className="max-w-lg max-h-[90vh] overflow-y-auto"
-        onPointerDownOutside={retainDatePopover}
-        onInteractOutside={retainDatePopover}
+        onPointerDownOutside={keepAddItemOpen}
+        onInteractOutside={keepAddItemOpen}
         onFocusOutside={retainDatePopover}
       >
         <DialogHeader>
@@ -528,6 +645,9 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
               data-testid="add-inventory-description"
               value={form.description}
               onChange={(e) => setField({ description: e.target.value })}
+              onBlur={(e) =>
+                setField({ description: titleCaseWords(e.target.value) })
+              }
               className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
             />
           </div>
@@ -537,7 +657,14 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
               <Label className="text-[10px] tracking-[0.14em] uppercase">Category</Label>
               <Select
                 value={form.category}
-                onValueChange={(v) => setField({ category: v })}
+                onValueChange={(v) =>
+                  setForm((f) => ({
+                    ...f,
+                    category: v,
+                    size: sizesForCategory(v).includes(f.size) ? f.size : "",
+                    sizeCustom: false,
+                  }))
+                }
               >
                 <SelectTrigger data-testid="add-inventory-category" className="mt-1">
                   <SelectValue />
@@ -574,10 +701,13 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-[10px] tracking-[0.14em] uppercase">Size</Label>
-              <Input
-                data-testid="add-inventory-size"
+              <SizeField
+                category={form.category}
                 value={form.size}
-                onChange={(e) => setField({ size: e.target.value })}
+                custom={form.sizeCustom}
+                onCustomChange={(sizeCustom) => setField({ sizeCustom })}
+                onChange={(size) => setField({ size })}
+                testId="add-inventory-size"
                 className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
               />
             </div>
@@ -587,6 +717,9 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
                 data-testid="add-inventory-color"
                 value={form.color}
                 onChange={(e) => setField({ color: e.target.value })}
+                onBlur={(e) =>
+                  setField({ color: capitalizeFirstLetter(e.target.value) })
+                }
                 className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
               />
             </div>
@@ -595,13 +728,10 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-[10px] tracking-[0.14em] uppercase">Price</Label>
-              <Input
-                data-testid="add-inventory-price"
-                type="number"
-                min="0"
-                step="0.01"
+              <DollarInput
+                testId="add-inventory-price"
                 value={form.asking_price}
-                onChange={(e) => setField({ asking_price: e.target.value })}
+                onChange={(asking_price) => setField({ asking_price })}
                 className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
               />
             </div>
@@ -841,11 +971,22 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
                       data-testid={`bulk-add-description-${index}`}
                       value={row.description}
                       onChange={(e) => patchRow(row.key, { description: e.target.value })}
+                      onBlur={(e) =>
+                        patchRow(row.key, {
+                          description: titleCaseWords(e.target.value),
+                        })
+                      }
                       className={fieldInput}
                     />
                     <Select
                       value={row.category}
-                      onValueChange={(v) => patchRow(row.key, { category: v })}
+                      onValueChange={(v) =>
+                        patchRow(row.key, {
+                          category: v,
+                          size: sizesForCategory(v).includes(row.size) ? row.size : "",
+                          sizeCustom: false,
+                        })
+                      }
                     >
                       <SelectTrigger
                         aria-label="Category"
@@ -862,11 +1003,14 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Input
-                      aria-label="Size"
-                      data-testid={`bulk-add-size-${index}`}
+                    <SizeField
+                      ariaLabel="Size"
+                      category={row.category}
                       value={row.size}
-                      onChange={(e) => patchRow(row.key, { size: e.target.value })}
+                      custom={row.sizeCustom}
+                      onCustomChange={(sizeCustom) => patchRow(row.key, { sizeCustom })}
+                      onChange={(size) => patchRow(row.key, { size })}
+                      testId={`bulk-add-size-${index}`}
                       className={fieldInput}
                     />
                     <Input
@@ -874,16 +1018,18 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
                       data-testid={`bulk-add-color-${index}`}
                       value={row.color}
                       onChange={(e) => patchRow(row.key, { color: e.target.value })}
+                      onBlur={(e) =>
+                        patchRow(row.key, {
+                          color: capitalizeFirstLetter(e.target.value),
+                        })
+                      }
                       className={fieldInput}
                     />
-                    <Input
-                      aria-label="Price"
-                      data-testid={`bulk-add-price-${index}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
+                    <DollarInput
+                      ariaLabel="Price"
+                      testId={`bulk-add-price-${index}`}
                       value={row.price}
-                      onChange={(e) => patchRow(row.key, { price: e.target.value })}
+                      onChange={(price) => patchRow(row.key, { price })}
                       className={fieldInput}
                     />
                     <button
@@ -926,7 +1072,16 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
               type="button"
               data-testid="bulk-add-save"
               className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
-              onClick={() => toast.message("This is a preview. Nothing was saved.")}
+              onClick={() => {
+                setRows((prev) =>
+                  prev.map((r) => ({
+                    ...r,
+                    description: titleCaseWords(r.description),
+                    color: capitalizeFirstLetter(r.color),
+                  }))
+                );
+                toast.message("This is a preview. Nothing was saved.");
+              }}
             >
               Save pieces
             </Button>
@@ -1201,6 +1356,7 @@ export default function Inventory() {
       asking_price: String(item.asking_price ?? ""),
       rack: item.rack || "",
       color: item.color || "",
+      sizeCustom: false,
       text_id: item.text_id || "",
       status: item.status || "Active",
     });
@@ -1211,18 +1367,19 @@ export default function Inventory() {
     if (!editDraft?.item_id) return;
     if (!editDraft.description.trim()) return toast.error("Description is required");
     const payload = {
-      description: editDraft.description.trim(),
+      description: titleCaseWords(editDraft.description),
       category: editDraft.category,
       size: editDraft.size.trim(),
       condition: editDraft.condition,
       rack: editDraft.rack.trim(),
-      color: editDraft.color.trim(),
+      color: capitalizeFirstLetter(editDraft.color),
       text_id: editDraft.text_id.trim(),
       status: editDraft.status,
     };
     if (canEditPrice) {
-      const price = Number(editDraft.asking_price);
-      if (Number.isNaN(price) || price < 0) {
+      const raw = String(editDraft.asking_price ?? "").trim();
+      const price = Number(raw);
+      if (raw === "" || Number.isNaN(price) || price < 0) {
         return toast.error("Enter a valid listing price");
       }
       payload.asking_price = price;
@@ -2101,6 +2258,12 @@ export default function Inventory() {
                   onChange={(e) =>
                     setEditDraft((d) => ({ ...d, description: e.target.value }))
                   }
+                  onBlur={(e) =>
+                    setEditDraft((d) => ({
+                      ...d,
+                      description: titleCaseWords(e.target.value),
+                    }))
+                  }
                   className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
                 />
               </div>
@@ -2110,7 +2273,12 @@ export default function Inventory() {
                   <Select
                     value={editDraft.category}
                     onValueChange={(v) =>
-                      setEditDraft((d) => ({ ...d, category: v }))
+                      setEditDraft((d) => ({
+                        ...d,
+                        category: v,
+                        size: sizesForCategory(v).includes(d.size) ? d.size : "",
+                        sizeCustom: false,
+                      }))
                     }
                   >
                     <SelectTrigger data-testid="inventory-edit-category" className="mt-1">
@@ -2149,12 +2317,15 @@ export default function Inventory() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">Size</Label>
-                  <Input
-                    data-testid="inventory-edit-size"
+                  <SizeField
+                    category={editDraft.category}
                     value={editDraft.size}
-                    onChange={(e) =>
-                      setEditDraft((d) => ({ ...d, size: e.target.value }))
+                    custom={editDraft.sizeCustom}
+                    onCustomChange={(sizeCustom) =>
+                      setEditDraft((d) => ({ ...d, sizeCustom }))
                     }
+                    onChange={(size) => setEditDraft((d) => ({ ...d, size }))}
+                    testId="inventory-edit-size"
                     className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
                   />
                 </div>
@@ -2162,15 +2333,12 @@ export default function Inventory() {
                   <Label className="text-[10px] tracking-[0.14em] uppercase">
                     Listing price
                   </Label>
-                  <Input
-                    data-testid="inventory-edit-price"
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <DollarInput
+                    testId="inventory-edit-price"
                     value={editDraft.asking_price}
                     disabled={!canEditPrice}
-                    onChange={(e) =>
-                      setEditDraft((d) => ({ ...d, asking_price: e.target.value }))
+                    onChange={(asking_price) =>
+                      setEditDraft((d) => ({ ...d, asking_price }))
                     }
                     className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)] disabled:opacity-60"
                   />
@@ -2200,6 +2368,12 @@ export default function Inventory() {
                     value={editDraft.color}
                     onChange={(e) =>
                       setEditDraft((d) => ({ ...d, color: e.target.value }))
+                    }
+                    onBlur={(e) =>
+                      setEditDraft((d) => ({
+                        ...d,
+                        color: capitalizeFirstLetter(e.target.value),
+                      }))
                     }
                     className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
                   />
