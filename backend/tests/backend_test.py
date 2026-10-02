@@ -448,6 +448,10 @@ class TestInventoryExpiry:
         for it in items:
             pe = it.get("period_end")
             status = it.get("status")
+            if it.get("is_house") or str(it.get("item_id") or "").upper().startswith("HOUSE-"):
+                continue
+            if (it.get("consignor_id") or "").upper() in {"HOUSE", "2999", "0"}:
+                continue
             if not pe or status in ("Sold", "Donated", "Returned"):
                 continue
             try:

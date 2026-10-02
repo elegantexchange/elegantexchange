@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
 import StatusPill from "@/components/StatusPill";
@@ -14,6 +14,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Camera, Flag, Home, LayoutGrid, List, Pencil, Plus, Printer, Rows3, Search, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 import {
   Select,
@@ -69,10 +78,16 @@ function isHouseItem(i) {
   if (i.is_house === true || (i.ownership || "").toLowerCase() === "house") {
     return true;
   }
+  if (/^HOUSE-/i.test(i.item_id || "")) return true;
   const cid = (i.consignor_id || "").trim().toUpperCase();
   if (cid === "HOUSE" || cid === "2999") return true;
   const name = (i.consignor_name || "").trim().toLowerCase();
   return name === "in house" || name === "boutique (house)";
+}
+
+function displayStatus(i) {
+  if (isHouseItem(i) && i.status === "Expired") return "Active";
+  return i.status;
 }
 
 function ownerLabel(i) {
@@ -176,6 +191,7 @@ function daysUntil(iso, today) {
 
 /** Human-readable reasons an item needs attention (expiry / period). */
 function attentionReasons(i, today) {
+  if (isHouseItem(i)) return [];
   const reasons = [];
   if (i.status === "Expired") {
     reasons.push(
@@ -219,15 +235,16 @@ function toneFor(i, today) {
   const reasons = attentionReasons(i, today);
   if (reasons.length) {
     const past =
-      i.status === "Expired" ||
-      (i.period_end && daysUntil(i.period_end, today) < 0);
+      !isHouseItem(i) &&
+      (i.status === "Expired" ||
+        (i.period_end && daysUntil(i.period_end, today) < 0));
     return {
       ...TONES.attention,
       label: past ? "Expired" : "Expiring soon",
       reasons,
     };
   }
-  if (i.status === "Active") return { ...TONES.active, reasons: [] };
+  if (displayStatus(i) === "Active") return { ...TONES.active, reasons: [] };
   return { ...TONES.closed, reasons: [] };
 }
 
@@ -1214,12 +1231,15 @@ export default function Inventory() {
   const canDelete = isManagerOrAdmin(user);
   const canEditPrice = isManagerOrAdmin(user);
   const retailView = roleOf(user) === "retail";
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [tagsOnly, setTagsOnly] = useState(false);
-  const [houseOnly, setHouseOnly] = useState(false);
+  const [houseOnly, setHouseOnly] = useState(
+    () => searchParams.get("house") === "1"
+  );
   const [selected, setSelected] = useState(new Set());
   const [focusId, setFocusId] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -1236,6 +1256,8 @@ export default function Inventory() {
   const [editDraft, setEditDraft] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [soldConfirmOpen, setSoldConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [view, setView] = useState(readView);
   const fileRef = useRef(null);
   const nav = useNavigate();
@@ -1253,6 +1275,18 @@ export default function Inventory() {
       /* ignore */
     }
   }, [view]);
+
+  useEffect(() => {
+    setHouseOnly(searchParams.get("house") === "1");
+  }, [searchParams]);
+
+  const setHouseFilter = (on) => {
+    setHouseOnly(on);
+    const next = new URLSearchParams(searchParams);
+    if (on) next.set("house", "1");
+    else next.delete("house");
+    setSearchParams(next, { replace: true });
+  };
 
   const today = new Date().toISOString().slice(0, 10);
   const sevenAhead = (() => {
@@ -1302,16 +1336,24 @@ export default function Inventory() {
       if (statusFilter === "All") return true;
       if (statusFilter === "Expiring Soon") {
         return (
+          !isHouseItem(i) &&
           i.status === "Active" &&
+          i.period_end &&
           i.period_end <= sevenAhead &&
           i.period_end >= today
         );
       }
       // Expired pieces stay on the floor until donated / returned / sold
       if (statusFilter === "Active") {
-        return i.status === "Active" || i.status === "Expired";
+        return (
+          displayStatus(i) === "Active" ||
+          (!isHouseItem(i) && i.status === "Expired")
+        );
       }
-      return i.status === statusFilter;
+      if (statusFilter === "Expired") {
+        return i.status === "Expired" && !isHouseItem(i);
+      }
+      return displayStatus(i) === statusFilter;
     });
   }, [items, q, statusFilter, flaggedOnly, houseOnly, tagsOnly, today, sevenAhead]);
 
@@ -1521,17 +1563,11 @@ export default function Inventory() {
 
   const deleteItem = async (item) => {
     if (!canDelete || !item) return;
-    if (
-      !window.confirm(
-        `Delete ${item.item_id}? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
     setDeleteBusy(true);
     try {
       await api.delete(`/inventory/${item.item_id}`);
       setItems((prev) => prev.filter((i) => i.item_id !== item.item_id));
+      setDeleteConfirmOpen(false);
       toast.success("Item deleted");
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || e.message);
@@ -1551,7 +1587,7 @@ export default function Inventory() {
       key: "house",
       label: houseCount > 0 ? `In House (${houseCount})` : "In House",
       testid: "chip-house",
-      clear: () => setHouseOnly(false),
+      clear: () => setHouseFilter(false),
     },
     flaggedOnly && {
       key: "review",
@@ -1569,9 +1605,23 @@ export default function Inventory() {
 
   const clearAllFilters = () => {
     setStatusFilter("All");
-    setHouseOnly(false);
+    setHouseFilter(false);
     setFlaggedOnly(false);
     setTagsOnly(false);
+  };
+
+  const viewConsignor = (item) => {
+    if (!item) return;
+    if (isHouseItem(item)) {
+      setQ("");
+      setStatusFilter("All");
+      setFlaggedOnly(false);
+      setTagsOnly(false);
+      setHouseFilter(true);
+      nav("/inventory?house=1");
+      return;
+    }
+    if (item.consignor_id) nav(`/consignors/${item.consignor_id}`);
   };
 
   return (
@@ -1721,7 +1771,7 @@ export default function Inventory() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 data-testid="filter-house-btn"
-                onClick={() => setHouseOnly(true)}
+                onClick={() => setHouseFilter(true)}
                 className="text-[13px]"
               >
                 <Home size={14} className="mr-2" />
@@ -1907,7 +1957,7 @@ export default function Inventory() {
                               ? ` · ${i.rack}`
                               : ""}
                           {" · "}
-                          {i.status}
+                          {displayStatus(i)}
                           {i.tags_printed === false ? " · tag waiting" : ""}
                         </div>
                       </div>
@@ -2017,7 +2067,7 @@ export default function Inventory() {
                           {fmtMoney(i.asking_price)}
                         </div>
                         <div className="text-[11px] text-neutral-500">
-                          {i.status}
+                          {displayStatus(i)}
                           {flags.length ? " · flagged" : ""}
                         </div>
                       </div>
@@ -2219,28 +2269,33 @@ export default function Inventory() {
 
               <div className="ee-meta-grid mt-8">
                 {[
-                  ["Status", <StatusPill key="s" status={focused.status} />],
-                  ["Rack", focused.rack || "—"],
+                  ["Status", <StatusPill key="s" status={displayStatus(focused)} />],
                   ["Size", focused.size || "—"],
                   ["Date in", fmtDate(focused.date_in)],
-                  ["Period end", fmtDate(focused.period_end)],
-                  ["ID", focused.text_id || "—"],
-                  [
-                    isHouseItem(focused) ? "Owner" : "Consignor",
-                    isHouseItem(focused) ? (
-                      <span key="c">In House</span>
-                    ) : (
-                      <button
-                        key="c"
-                        type="button"
-                        onClick={() => nav(`/consignors/${focused.consignor_id}`)}
-                        className="block w-full max-w-full hover:text-[var(--ee-magenta)] text-left truncate"
-                      >
-                        {focused.consignor_name} · {focused.consignor_id}
-                      </button>
-                    ),
+                  !isHouseItem(focused) && [
+                    "Period end",
+                    fmtDate(focused.period_end),
                   ],
-                ].map(([label, value]) => (
+                  [
+                    "ID",
+                    isHouseItem(focused)
+                      ? "In House"
+                      : focused.text_id || "—",
+                  ],
+                  !isHouseItem(focused) && [
+                    "Consignor",
+                    <button
+                      key="c"
+                      type="button"
+                      onClick={() => viewConsignor(focused)}
+                      className="block w-full max-w-full hover:text-[var(--ee-magenta)] text-left truncate"
+                    >
+                      {focused.consignor_name} · {focused.consignor_id}
+                    </button>,
+                  ],
+                ]
+                  .filter(Boolean)
+                  .map(([label, value]) => (
                   <div key={label} className="ee-meta-cell">
                     <div className="ee-meta-label">{label}</div>
                     <div className="ee-meta-value">{value}</div>
@@ -2248,11 +2303,11 @@ export default function Inventory() {
                 ))}
               </div>
 
-              <div className="mt-8 flex flex-wrap gap-2">
+              <div className="mt-8 flex flex-wrap gap-2 md:flex-nowrap md:items-center">
                 <Button
                   type="button"
                   data-testid="inventory-edit-btn"
-                  className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+                  className="ee-btn-label rounded-[8px] bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white whitespace-nowrap shrink-0 md:px-2.5"
                   onClick={() => openEdit(focused)}
                 >
                   <Pencil size={13} className="mr-1" /> Edit item
@@ -2260,24 +2315,26 @@ export default function Inventory() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] whitespace-nowrap shrink-0 md:px-2.5"
                   onClick={() => printTags([focused.item_id])}
                 >
                   <Printer size={13} className="mr-1" /> Print tag
                 </Button>
                 <Button
                   type="button"
+                  data-testid="inventory-sold-btn"
                   variant="outline"
-                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-                  onClick={() => bulk("sold", [focused.item_id])}
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] whitespace-nowrap shrink-0 md:px-2.5"
+                  onClick={() => setSoldConfirmOpen(true)}
                 >
                   Mark sold
                 </Button>
                 <Button
                   type="button"
+                  data-testid="inventory-view-consignor-btn"
                   variant="outline"
-                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)]"
-                  onClick={() => nav(`/consignors/${focused.consignor_id}`)}
+                  className="ee-btn-label rounded-[8px] border-[var(--ee-sidebar-border)] whitespace-nowrap shrink-0 md:px-2.5"
+                  onClick={() => viewConsignor(focused)}
                 >
                   View consignor
                 </Button>
@@ -2287,8 +2344,8 @@ export default function Inventory() {
                     data-testid="inventory-delete-btn"
                     variant="outline"
                     disabled={deleteBusy}
-                    className="ee-btn-label rounded-[8px] border-red-200 text-red-700 hover:bg-red-50"
-                    onClick={() => deleteItem(focused)}
+                    className="ee-btn-label rounded-[8px] border-red-200 text-red-700 hover:bg-red-50 whitespace-nowrap shrink-0 md:px-2.5"
+                    onClick={() => setDeleteConfirmOpen(true)}
                   >
                     <Trash2 size={13} className="mr-1" /> Delete
                   </Button>
@@ -2304,6 +2361,61 @@ export default function Inventory() {
           ) : null}
         </AnimatePresence>
       </div>
+
+      <AlertDialog open={soldConfirmOpen} onOpenChange={setSoldConfirmOpen}>
+        <AlertDialogContent data-testid="inventory-sold-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark sold</AlertDialogTitle>
+            <AlertDialogDescription>
+              Mark this piece as sold?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="inventory-sold-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              data-testid="inventory-sold-confirm"
+              className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white"
+              onClick={() => {
+                if (focused) bulk("sold", [focused.item_id]);
+                setSoldConfirmOpen(false);
+              }}
+            >
+              Mark sold
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent data-testid="inventory-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete piece</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete this piece? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-testid="inventory-delete-cancel"
+              disabled={deleteBusy}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              data-testid="inventory-delete-confirm"
+              disabled={deleteBusy}
+              className="ee-btn-label bg-red-700 hover:bg-red-800 text-white"
+              onClick={() => deleteItem(focused)}
+            >
+              {deleteBusy ? "Deleting…" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AddInventoryDialog
         open={addOpen}

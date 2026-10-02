@@ -62,7 +62,7 @@ export default function TagPrint() {
   }, [demo, ids]);
 
   return (
-    <div className="min-h-screen bg-[#f3eee6] py-8 print:bg-white print:py-0">
+    <div className="min-h-screen bg-[var(--ee-bg)] py-8 print:bg-white print:py-0">
       <div className="max-w-[8.5in] mx-auto px-4 print:px-0">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 no-print">
           <div>

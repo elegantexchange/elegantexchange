@@ -26,8 +26,11 @@ async def dashboard(
     # Keep expired floor → pending consignor cuts in sync (idempotent)
     from house_stock import (
         ensure_house_consignor,
+        house_display_name,
+        house_inventory_mongo_match,
         is_house_consignor,
         is_house_consignor_id,
+        is_house_item,
         mark_legacy_unassigned_as_house,
     )
     from test_data import is_test_consignor, scrub_test_consignors
@@ -124,21 +127,26 @@ async def dashboard(
     expiring_soon = []
     expired = []
     seven_days = (today + timedelta(days=7)).isoformat()
+    house_nor = {"$nor": [house_inventory_mongo_match()]}
     async for item in db.inventory.find(
-        {"status": "Active", "period_end": {"$lte": seven_days, "$gte": today.isoformat()}},
+        {
+            "status": "Active",
+            "period_end": {"$type": "string", "$lte": seven_days, "$gte": today.isoformat()},
+            **house_nor,
+        },
         {"_id": 0},
     ).sort("period_end", 1).limit(100):
-        from house_stock import house_display_name
-
         c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
+        if is_house_item(item, c):
+            continue
         item["consignor_name"] = house_display_name(item, c, fallback="")
         expiring_soon.append(item)
     async for item in db.inventory.find(
-        {"status": "Expired"}, {"_id": 0}
+        {"status": "Expired", **house_nor}, {"_id": 0}
     ).sort("period_end", 1).limit(100):
-        from house_stock import house_display_name
-
         c = await db.consignors.find_one({"consignor_id": item["consignor_id"]}, {"_id": 0})
+        if is_house_item(item, c):
+            continue
         item["consignor_name"] = house_display_name(item, c, fallback="")
         expired.append(item)
 

@@ -124,7 +124,10 @@ async def assess_drop_off(
     if not items_in:
         raise HTTPException(status_code=400, detail="Add at least one item")
 
-    split_pct = await current_consignor_split_pct(db)
+    from house_stock import is_house_consignor
+
+    house = is_house_consignor(consignor)
+    split_pct = 0.0 if house else await current_consignor_split_pct(db)
     created = []
     item_ids = []
     for raw in items_in:
@@ -147,7 +150,7 @@ async def assess_drop_off(
             "condition": raw.get("condition") or "",
             "asking_price": price,
             "date_in": date_in,
-            "period_end": _period_end(date_in),
+            "period_end": None if house else _period_end(date_in),
             "status": "Active",
             "date_sold": None,
             "sale_price": None,
@@ -156,6 +159,8 @@ async def assess_drop_off(
             "text_id": raw.get("text_id") or "",
             "media": list(raw.get("media") or []),
             "consignor_split_pct": split_pct,
+            "is_house": house,
+            "ownership": "house" if house else "consignor",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "tags_printed": False,
         }

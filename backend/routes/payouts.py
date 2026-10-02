@@ -14,17 +14,19 @@ async def queue(request: Request, _u: dict = Depends(require_roles("admin"))):
     """Aggregated pending balance per consignor."""
     db = request.app.state.db
     # Keep expired statuses current so queue can surface expiry pressure
-    today = date.today().isoformat()
-    await db.inventory.update_many(
-        {"status": "Active", "period_end": {"$lte": today}},
-        {"$set": {"status": "Expired"}},
+    from house_stock import (
+        house_inventory_mongo_match,
+        is_house_consignor,
+        is_house_consignor_id,
+        refresh_expired_inventory,
     )
-    from house_stock import is_house_consignor, is_house_consignor_id
+
+    await refresh_expired_inventory(db)
 
     expired_map: dict[str, int] = {}
     async for row in db.inventory.aggregate(
         [
-            {"$match": {"status": "Expired"}},
+            {"$match": {"status": "Expired", "$nor": [house_inventory_mongo_match()]}},
             {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
         ]
     ):

@@ -67,6 +67,8 @@ async def get_analytics(
     # Inventory metrics
     inventory = await db.inventory.find({}, {"_id": 0}).to_list(50000)
     active_by_cat = defaultdict(int)
+    from house_stock import is_house_item
+
     sold_count = 0
     total_consigned = len(inventory)
     days_to_sell_list = []
@@ -82,6 +84,8 @@ async def get_analytics(
             except (TypeError, ValueError):
                 pass
             active_by_cat[i.get("category", "Other")] += 1
+            if is_house_item(i) or not i.get("period_end"):
+                continue
             try:
                 pe = date.fromisoformat(i["period_end"])
                 if (pe - today).days <= 7 and (pe - today).days >= 0:

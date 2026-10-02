@@ -26,6 +26,10 @@ from house_stock import (
     HOUSE_DISPLAY_NAME,
     ensure_house_consignor,
     is_house_consignor,
+    is_house_consignor_id,
+    is_house_item,
+    present_house_item,
+    refresh_expired_inventory,
 )
 from csv_import_utils import (
     cell,
@@ -319,11 +323,7 @@ async def _ensure_consignor(
 
 
 async def _refresh_expired(db):
-    today = _today_iso()
-    await db.inventory.update_many(
-        {"status": "Active", "period_end": {"$lte": today}},
-        {"$set": {"status": "Expired"}},
-    )
+    await refresh_expired_inventory(db)
 
 
 @router.get("")
@@ -332,8 +332,6 @@ async def list_inventory(request: Request, _u: dict = Depends(get_current_user))
     await _refresh_expired(db)
     items = await db.inventory.find({}, {"_id": 0}).sort("date_in", -1).to_list(10000)
     # Attach consignor name (house stock always shows as "In House")
-    from house_stock import HOUSE_DISPLAY_NAME, is_house_item
-
     cids = list({i["consignor_id"] for i in items})
     cmap = {}
     async for c in db.consignors.find({"consignor_id": {"$in": cids}}, {"_id": 0}):
@@ -341,8 +339,7 @@ async def list_inventory(request: Request, _u: dict = Depends(get_current_user))
     for i in items:
         c = cmap.get(i["consignor_id"])
         if is_house_item(i, c):
-            i["consignor_name"] = HOUSE_DISPLAY_NAME
-            i["is_house"] = True
+            present_house_item(i, c)
         else:
             i["consignor_name"] = (c or {}).get("full_name", "") or ""
             i.setdefault("is_house", False)
@@ -392,7 +389,7 @@ async def create_item(
         "condition": body.condition or "",
         "asking_price": float(body.asking_price),
         "date_in": date_in,
-        "period_end": _period_end(date_in),
+        "period_end": None if house else _period_end(date_in),
         "status": "Active",
         "date_sold": None,
         "sale_price": None,
@@ -410,6 +407,7 @@ async def create_item(
     }
     await db.inventory.insert_one(doc)
     doc.pop("_id", None)
+    present_house_item(doc)
     return doc
 
 
@@ -450,7 +448,7 @@ async def create_items_batch(
             "condition": raw.get("condition", ""),
             "asking_price": float(raw.get("asking_price", 0)),
             "date_in": date_in,
-            "period_end": _period_end(date_in),
+            "period_end": None if house else _period_end(date_in),
             "status": "Active",
             "date_sold": None,
             "sale_price": None,
@@ -468,6 +466,7 @@ async def create_items_batch(
         }
         await db.inventory.insert_one(doc)
         doc.pop("_id", None)
+        present_house_item(doc)
         created.append(doc)
     return {
         "items": created,
@@ -616,6 +615,8 @@ async def import_inventory(
         if consignor_created and consignor_id not in created_consignor_ids:
             created_consignor_ids.append(consignor_id)
 
+        house = is_house_consignor_id(consignor_id)
+
         category_inferred = False
         if category_raw.strip():
             category, category_known = _norm_category(category_raw)
@@ -696,7 +697,7 @@ async def import_inventory(
             "condition": condition,
             "asking_price": asking_price,
             "date_in": date_in,
-            "period_end": _period_end(date_in),
+            "period_end": None if house else _period_end(date_in),
             "status": status,
             "date_sold": None,
             "sale_price": None,
@@ -707,7 +708,9 @@ async def import_inventory(
             "notes": notes,
             "import_flags": flags,
             "needs_review": bool(flags),
-            "consignor_split_pct": split_pct,
+            "consignor_split_pct": 0.0 if house else split_pct,
+            "is_house": house,
+            "ownership": "house" if house else "consignor",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.inventory.insert_one(doc)
@@ -734,7 +737,7 @@ async def import_inventory(
                     {"item_id": item_id},
                     {"$set": {"import_flags": flags, "needs_review": True}},
                 )
-        elif status == "Expired" and asking_price > 0:
+        elif status == "Expired" and asking_price > 0 and not house:
             await insert_pending_sale(
                 db,
                 item=doc,
@@ -794,7 +797,7 @@ async def get_item(item_id: str, request: Request, _u: dict = Depends(get_curren
         raise HTTPException(status_code=404, detail="Not found")
     item.setdefault("import_flags", [])
     item.setdefault("needs_review", bool(item.get("import_flags")))
-    item.setdefault("is_house", False)
+    present_house_item(item)
     return item
 
 
@@ -824,8 +827,8 @@ async def update_item(
     existing.update(updates)
     existing.setdefault("import_flags", [])
     existing.setdefault("needs_review", bool(existing.get("import_flags")))
-    existing.setdefault("is_house", False)
     existing.setdefault("media", [])
+    present_house_item(existing)
     return existing
 
 

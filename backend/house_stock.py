@@ -8,7 +8,7 @@ payouts queue. Inventory and sales show them as "In House".
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 # Canonical account for owner-bought / boutique-owned inventory
 HOUSE_CONSIGNOR_ID = "HOUSE"
@@ -20,6 +20,7 @@ _UNASSIGNED_NAME_RE = re.compile(
     r"^\s*(unassigned\b.*|boutique(\s*\(house\))?|house(\s*stock)?|shop(\s*owned)?|in\s*house)\s*$",
     re.I,
 )
+_HOUSE_ITEM_ID_RE = re.compile(r"^HOUSE-", re.I)
 
 
 def is_house_consignor_id(consignor_id: str | None) -> bool:
@@ -49,9 +50,51 @@ def is_house_item(item: dict | None, consignor: dict | None = None) -> bool:
         item.get("is_house") is True
         or (item.get("ownership") or "").lower() == "house"
         or is_house_consignor_id(item.get("consignor_id"))
+        or bool(_HOUSE_ITEM_ID_RE.match(item.get("item_id") or ""))
     ):
         return True
     return is_house_consignor(consignor)
+
+
+def house_inventory_mongo_match() -> dict:
+    """Mongo clause matching boutique-owned / in-house inventory."""
+    ids = sorted({*LEGACY_HOUSE_IDS, HOUSE_CONSIGNOR_ID})
+    return {
+        "$or": [
+            {"is_house": True},
+            {"ownership": {"$regex": "^house$", "$options": "i"}},
+            {"consignor_id": {"$in": ids}},
+            {"item_id": {"$regex": r"^HOUSE-", "$options": "i"}},
+        ]
+    }
+
+
+def present_house_item(item: dict | None, consignor: dict | None = None) -> dict | None:
+    """Normalize house stock for API clients without rewriting Mongo."""
+    if not item:
+        return item
+    if is_house_item(item, consignor):
+        item["is_house"] = True
+        item["consignor_name"] = HOUSE_DISPLAY_NAME
+        item["period_end"] = None
+        if item.get("status") == "Expired":
+            item["status"] = "Active"
+    else:
+        item.setdefault("is_house", False)
+    return item
+
+
+async def refresh_expired_inventory(db) -> None:
+    """Flip past-period Active consignments to Expired. House stock never expires."""
+    today = date.today().isoformat()
+    await db.inventory.update_many(
+        {
+            "status": "Active",
+            "period_end": {"$type": "string", "$lte": today},
+            "$nor": [house_inventory_mongo_match()],
+        },
+        {"$set": {"status": "Expired"}},
+    )
 
 
 def house_display_name(

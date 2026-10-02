@@ -176,16 +176,16 @@ async def _balances_map(db) -> dict[str, float]:
 
 
 async def _refresh_expired(db) -> None:
-    today = date.today().isoformat()
-    await db.inventory.update_many(
-        {"status": "Active", "period_end": {"$lte": today}},
-        {"$set": {"status": "Expired"}},
-    )
+    from house_stock import refresh_expired_inventory
+
+    await refresh_expired_inventory(db)
 
 
 async def _expired_counts_map(db) -> dict[str, int]:
+    from house_stock import house_inventory_mongo_match
+
     pipeline = [
-        {"$match": {"status": "Expired"}},
+        {"$match": {"status": "Expired", "$nor": [house_inventory_mongo_match()]}},
         {"$group": {"_id": "$consignor_id", "n": {"$sum": 1}}},
     ]
     out: dict[str, int] = {}
@@ -738,8 +738,14 @@ async def get_consignor(
     c.setdefault("needs_review", bool(c.get("import_flags")))
     c.setdefault("expiry_action", "")
     c.setdefault("date_of_drop_off", "")
+    from house_stock import house_inventory_mongo_match
+
     expired_n = await db.inventory.count_documents(
-        {"consignor_id": consignor_id, "status": "Expired"}
+        {
+            "consignor_id": consignor_id,
+            "status": "Expired",
+            "$nor": [house_inventory_mongo_match()],
+        }
     )
     live_n = await db.inventory.count_documents(
         {"consignor_id": consignor_id, "status": "Active"}
