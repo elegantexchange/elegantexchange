@@ -139,7 +139,7 @@ class InventoryImportResult(BaseModel):
 
 # ----- Inventory -----
 class InventoryItemCreate(BaseModel):
-    consignor_id: str
+    consignor_id: Optional[str] = ""
     description: str
     category: str = "Other"
     size: Optional[str] = ""
@@ -150,6 +150,7 @@ class InventoryItemCreate(BaseModel):
     color: Optional[str] = ""
     text_id: Optional[str] = ""
     media: Optional[List[str]] = None
+    is_house: bool = False
 
 
 class InventoryItemUpdate(BaseModel):

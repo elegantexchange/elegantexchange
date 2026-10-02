@@ -360,17 +360,24 @@ async def create_item(
     body: InventoryItemCreate, request: Request, _u: dict = Depends(get_current_user)
 ):
     db = request.app.state.db
-    cid = (body.consignor_id or "").strip()
-    if cid.upper() == HOUSE_CONSIGNOR_ID or cid == "2999":
-        await ensure_house_consignor(db)
-        cid = HOUSE_CONSIGNOR_ID if cid.upper() == HOUSE_CONSIGNOR_ID else cid
-    consignor = await db.consignors.find_one({"consignor_id": cid})
-    if not consignor:
-        raise HTTPException(status_code=400, detail="Unknown consignor")
-    house = is_house_consignor(consignor)
     date_in = body.date_in or _today_iso()
-    item_id = await next_item_id(db, cid)
-    split_pct = 0.0 if house else await current_consignor_split_pct(db)
+    if body.is_house:
+        # Boutique-owned piece: HOUSE-nn ids, no consignor record.
+        cid = ""
+        house = True
+        item_id = await next_item_id(db, HOUSE_CONSIGNOR_ID)
+        split_pct = 0.0
+    else:
+        cid = (body.consignor_id or "").strip()
+        if cid.upper() == HOUSE_CONSIGNOR_ID or cid == "2999":
+            await ensure_house_consignor(db)
+            cid = HOUSE_CONSIGNOR_ID if cid.upper() == HOUSE_CONSIGNOR_ID else cid
+        consignor = await db.consignors.find_one({"consignor_id": cid})
+        if not consignor:
+            raise HTTPException(status_code=400, detail="Unknown consignor")
+        house = is_house_consignor(consignor)
+        item_id = await next_item_id(db, cid)
+        split_pct = 0.0 if house else await current_consignor_split_pct(db)
     description = capitalize_description(body.description)
     category = body.category or infer_category(description, body.rack or "")
     if category not in CATEGORIES:
@@ -787,6 +794,7 @@ async def get_item(item_id: str, request: Request, _u: dict = Depends(get_curren
         raise HTTPException(status_code=404, detail="Not found")
     item.setdefault("import_flags", [])
     item.setdefault("needs_review", bool(item.get("import_flags")))
+    item.setdefault("is_house", False)
     return item
 
 
@@ -816,6 +824,7 @@ async def update_item(
     existing.update(updates)
     existing.setdefault("import_flags", [])
     existing.setdefault("needs_review", bool(existing.get("import_flags")))
+    existing.setdefault("is_house", False)
     existing.setdefault("media", [])
     return existing
 

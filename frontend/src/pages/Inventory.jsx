@@ -251,6 +251,7 @@ function blankAddForm() {
     condition: "Excellent",
     asking_price: "",
     date_in: todayIso(),
+    is_house: false,
   };
 }
 
@@ -348,39 +349,32 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
       return;
     }
 
-    let target = picked;
-    if (!target && exact) {
-      target = {
-        mode: "existing",
-        id: exact.consignor_id,
-        label: consignorOptionLabel(exact),
-      };
-    } else if (!target && offerNew) {
-      target = { mode: "new", id: term };
-    }
-    if (!target) {
-      toast.error(
-        reservedTyped
-          ? "That number is reserved"
-          : "Choose a consignor, or enter a new 4-digit number"
-      );
-      return;
+    const inHouse = !!form.is_house;
+    let target = null;
+    if (!inHouse) {
+      target = picked;
+      if (!target && exact) {
+        target = {
+          mode: "existing",
+          id: exact.consignor_id,
+          label: consignorOptionLabel(exact),
+        };
+      } else if (!target && offerNew) {
+        target = { mode: "new", id: term };
+      }
+      if (!target) {
+        toast.error(
+          reservedTyped
+            ? "That number is reserved"
+            : "Choose a consignor, or enter a new 4-digit number"
+        );
+        return;
+      }
     }
 
     setBusy(true);
     try {
-      let cid = target.id;
-      if (target.mode === "new") {
-        const { data: created } = await api.post("/consignors", {
-          full_name: `(Name needed · ${target.id})`,
-          consignor_id: target.id,
-          payout_method: "Cash",
-          import_flags: ["missing_name"],
-        });
-        cid = created.consignor_id;
-      }
-      const { data } = await api.post("/inventory", {
-        consignor_id: cid,
+      const payload = {
         description,
         category: form.category || "Other",
         size: form.size.trim(),
@@ -388,7 +382,22 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
         asking_price: price,
         date_in: form.date_in || undefined,
         color: form.color.trim(),
-      });
+        is_house: inHouse,
+      };
+      if (!inHouse) {
+        let cid = target.id;
+        if (target.mode === "new") {
+          const { data: created } = await api.post("/consignors", {
+            full_name: `(Name needed · ${target.id})`,
+            consignor_id: target.id,
+            payout_method: "Cash",
+            import_flags: ["missing_name"],
+          });
+          cid = created.consignor_id;
+        }
+        payload.consignor_id = cid;
+      }
+      const { data } = await api.post("/inventory", payload);
       toast.success(`Saved ${data.item_id}`);
       onCreated(data);
     } catch (err) {
@@ -414,9 +423,24 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-3">
-          <div>
-            <Label className="text-[10px] tracking-[0.14em] uppercase">Consignor</Label>
-            {picked ? (
+          <div className={form.is_house ? "pointer-events-none" : undefined}>
+            <Label
+              className={`text-[10px] tracking-[0.14em] uppercase ${
+                form.is_house ? "text-neutral-400" : ""
+              }`}
+            >
+              Consignor
+            </Label>
+            {form.is_house ? (
+              <Input
+                data-testid="add-inventory-consignor"
+                value=""
+                disabled
+                readOnly
+                placeholder="Search name or number"
+                className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)] disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:opacity-70"
+              />
+            ) : picked ? (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-[8px] border border-[var(--ee-sidebar-border)] px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold truncate">
@@ -590,6 +614,22 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
               />
             </div>
           </div>
+
+          <label className="flex items-center gap-2 pt-1 cursor-pointer">
+            <Checkbox
+              data-testid="add-inventory-in-house"
+              checked={!!form.is_house}
+              onCheckedChange={(v) => {
+                const on = v === true;
+                setField({ is_house: on });
+                if (on) {
+                  setPicked(null);
+                  setQuery("");
+                }
+              }}
+            />
+            <span className="text-sm">In House</span>
+          </label>
 
           <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between sm:space-x-0">
             <Button
