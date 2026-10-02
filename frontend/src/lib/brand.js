@@ -73,6 +73,84 @@ export function categoryAllowsCustomSize(category) {
   );
 }
 
+/**
+ * Colors this floor already writes down, most common first.
+ * First letter matches a new save. Multi is the word for a multi-colored piece.
+ */
+export const COLORS = [
+  "Black",
+  "Blue",
+  "White",
+  "Green",
+  "Red",
+  "Grey",
+  "Pink",
+  "Black/white",
+  "Brown",
+  "Navy blue",
+  "Beige",
+  "Light blue",
+  "Magenta multi",
+  "Multi",
+  "Cream",
+  "Blue/white",
+  "Orange",
+  "Purple",
+  "Yellow",
+  "Maroon",
+  "Off white",
+  "Red multi",
+  "Dark blue",
+  "White multi",
+  "Gold",
+  "Peach",
+  "Blue multi",
+  "Black multi",
+  "Teal",
+  "Pink/white",
+  "Leopard",
+  "Black/gold",
+  "Grey/Black",
+  "Blue/black",
+  "Purple multi",
+  "Brown multi",
+  "Tan",
+  "Mint green",
+  "White/grey",
+  "Pink multi",
+  "Black/floral",
+  "Bright pink",
+];
+
+/** Short list when the field is focused and still empty. */
+export const COLOR_STARTERS = [
+  "Black",
+  "Blue",
+  "White",
+  "Green",
+  "Red",
+  "Grey",
+  "Pink",
+  "Brown",
+  "Navy blue",
+  "Cream",
+  "Beige",
+  "Multi",
+];
+
+export function colorSuggestions(query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return COLOR_STARTERS;
+  const starts = [];
+  const rest = [];
+  for (const color of COLORS) {
+    const lower = color.toLowerCase();
+    if (lower.startsWith(q)) starts.push(color);
+    else if (lower.includes(q)) rest.push(color);
+  }
+  return [...starts, ...rest].slice(0, 8);
+}
+
 export const CONDITIONS = ["Excellent", "Like New", "Very Good", "Good", "Fair"];
 
 export const PAYOUT_METHODS = [

@@ -34,6 +34,7 @@ import {
   CATEGORIES,
   CONDITIONS,
   categoryAllowsCustomSize,
+  colorSuggestions,
   sizesForCategory,
 } from "@/lib/brand";
 import { toast } from "sonner";
@@ -354,6 +355,99 @@ function SizeField({
         ) : null}
       </SelectContent>
     </Select>
+  );
+}
+
+function ColorField({ value, onChange, testId, className, ariaLabel }) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const classes = className || "";
+  const margin = /\bmt-1\b/.test(classes) ? "mt-1" : "";
+  const inputClass = classes.replace(/\bmt-1\b/, "").trim();
+  const suggestions = open ? colorSuggestions(value) : [];
+  const active = suggestions.length
+    ? Math.min(highlight, suggestions.length - 1)
+    : 0;
+
+  const pick = (color) => {
+    onChange(color);
+    setOpen(false);
+    setHighlight(0);
+  };
+
+  return (
+    <div className={margin}>
+      <Input
+        aria-label={ariaLabel}
+        aria-autocomplete="list"
+        aria-expanded={open && suggestions.length > 0}
+        data-testid={testId}
+        autoComplete="off"
+        value={value}
+        onMouseDown={() => setOpen(true)}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setHighlight(0);
+          setOpen(true);
+        }}
+        onBlur={(e) => {
+          onChange(capitalizeFirstLetter(e.target.value));
+          setOpen(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (!open) {
+              setOpen(true);
+              setHighlight(0);
+              return;
+            }
+            setHighlight((i) =>
+              Math.min(i + 1, Math.max(colorSuggestions(value).length - 1, 0))
+            );
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlight((i) => Math.max(i - 1, 0));
+            return;
+          }
+          if (e.key === "Enter" && open) {
+            e.preventDefault();
+            if (suggestions.length) pick(suggestions[active]);
+            return;
+          }
+          if (e.key === "Escape" && open) {
+            e.stopPropagation();
+            setOpen(false);
+          }
+        }}
+        className={inputClass}
+      />
+      {suggestions.length ? (
+        <div
+          data-testid={`${testId}-list`}
+          className="mt-1 max-h-40 overflow-y-auto rounded-[8px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]"
+        >
+          {suggestions.map((color, index) => (
+            <button
+              key={color}
+              type="button"
+              data-testid={`${testId}-option-${color}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setHighlight(index)}
+              onClick={() => pick(color)}
+              className={`w-full text-left px-3 py-2 text-sm border-b last:border-0 border-[var(--ee-sidebar-border)] hover:bg-[var(--ee-magenta-soft)] ${
+                index === active ? "bg-[var(--ee-magenta-soft)]" : ""
+              }`}
+            >
+              {color}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -713,13 +807,10 @@ function AddInventoryDialog({ open, onOpenChange, consignors, onCreated, onBulk 
             </div>
             <div>
               <Label className="text-[10px] tracking-[0.14em] uppercase">Color</Label>
-              <Input
-                data-testid="add-inventory-color"
+              <ColorField
+                testId="add-inventory-color"
                 value={form.color}
-                onChange={(e) => setField({ color: e.target.value })}
-                onBlur={(e) =>
-                  setField({ color: capitalizeFirstLetter(e.target.value) })
-                }
+                onChange={(color) => setField({ color })}
                 className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
               />
             </div>
@@ -805,6 +896,7 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
   const [rows, setRows] = useState(() => [blankBulkRow(), blankBulkRow(), blankBulkRow()]);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(null);
+  const [inHouse, setInHouse] = useState(false);
   const [dateIn, setDateIn] = useState(todayIso);
 
   useEffect(() => {
@@ -812,6 +904,7 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
     setRows([blankBulkRow(), blankBulkRow(), blankBulkRow()]);
     setQuery("");
     setPicked(null);
+    setInHouse(false);
     setDateIn(todayIso());
   }, [open]);
 
@@ -833,11 +926,13 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
     !picked && /^\d{4}$/.test(term) && !exact && !isReservedConsignorNumber(term);
   const reservedTyped = !picked && isReservedConsignorNumber(term);
 
-  const consignorNumber = picked?.id
-    ? String(picked.id)
-    : /^\d{4}$/.test(term) && !isReservedConsignorNumber(term)
-      ? term
-      : "";
+  const consignorNumber = inHouse
+    ? "HOUSE"
+    : picked?.id
+      ? String(picked.id)
+      : /^\d{4}$/.test(term) && !isReservedConsignorNumber(term)
+        ? term
+        : "";
 
   const patchRow = (key, patch) =>
     setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -857,9 +952,20 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
         </DialogHeader>
 
         <div className="space-y-3">
-          <div>
-            <Label className={fieldLabel}>Consignor</Label>
-            {picked ? (
+          <div className={inHouse ? "pointer-events-none" : undefined}>
+            <Label className={`${fieldLabel} ${inHouse ? "text-neutral-400" : ""}`}>
+              Consignor
+            </Label>
+            {inHouse ? (
+              <Input
+                data-testid="bulk-add-consignor"
+                value=""
+                disabled
+                readOnly
+                placeholder="Search name or number"
+                className={`mt-1 ${fieldInput} disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:opacity-70`}
+              />
+            ) : picked ? (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-[8px] border border-[var(--ee-sidebar-border)] px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold truncate">
@@ -937,6 +1043,22 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
             )}
           </div>
 
+          <label className="flex items-center gap-2 pt-1 cursor-pointer">
+            <Checkbox
+              data-testid="bulk-add-in-house"
+              checked={inHouse}
+              onCheckedChange={(v) => {
+                const on = v === true;
+                setInHouse(on);
+                if (on) {
+                  setPicked(null);
+                  setQuery("");
+                }
+              }}
+            />
+            <span className="text-sm">In House</span>
+          </label>
+
           <div className="max-w-[220px]">
             <Label className={fieldLabel}>Date in</Label>
             <DateField value={dateIn} onChange={setDateIn} testId="bulk-add-date" />
@@ -1013,16 +1135,11 @@ function BulkAddDialog({ open, onOpenChange, consignors, items }) {
                       testId={`bulk-add-size-${index}`}
                       className={fieldInput}
                     />
-                    <Input
-                      aria-label="Color"
-                      data-testid={`bulk-add-color-${index}`}
+                    <ColorField
+                      ariaLabel="Color"
+                      testId={`bulk-add-color-${index}`}
                       value={row.color}
-                      onChange={(e) => patchRow(row.key, { color: e.target.value })}
-                      onBlur={(e) =>
-                        patchRow(row.key, {
-                          color: capitalizeFirstLetter(e.target.value),
-                        })
-                      }
+                      onChange={(color) => patchRow(row.key, { color })}
                       className={fieldInput}
                     />
                     <DollarInput
@@ -2363,17 +2480,11 @@ export default function Inventory() {
                 </div>
                 <div>
                   <Label className="text-[10px] tracking-[0.14em] uppercase">Color</Label>
-                  <Input
-                    data-testid="inventory-edit-color"
+                  <ColorField
+                    testId="inventory-edit-color"
                     value={editDraft.color}
-                    onChange={(e) =>
-                      setEditDraft((d) => ({ ...d, color: e.target.value }))
-                    }
-                    onBlur={(e) =>
-                      setEditDraft((d) => ({
-                        ...d,
-                        color: capitalizeFirstLetter(e.target.value),
-                      }))
+                    onChange={(color) =>
+                      setEditDraft((d) => ({ ...d, color }))
                     }
                     className="mt-1 rounded-[8px] border-[var(--ee-sidebar-border)]"
                   />
