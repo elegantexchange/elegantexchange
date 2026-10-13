@@ -151,7 +151,7 @@ async def seed_demo(db) -> None:
         ("Black coach bag with floral pattern", "Handbags", "black", "gold rack (1)", "OS"),
         ("Silk wrap dress, blush", "Dresses", "blush", "mannequin", "M"),
         ("Black wool trench coat", "Outerwear", "black", "windows", "S"),
-        ("Cashmere crewneck sweater", "Tops", "camel", "gold rack (2)", "M"),
+        ("Cashmere crewneck sweater", "Sweaters", "camel", "gold rack (2)", "M"),
         ("Designer leather riding boots", "Shoes", "brown", "shoes", "8"),
         ("Linen midi skirt, cream", "Dresses", "cream", "gold table", "6"),
         ("Pearl drop earrings", "Accessories", "cream", "accessories", "OS"),

@@ -50,6 +50,7 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 CATEGORIES = {
     "Dresses",
     "Tops",
+    "Sweaters",
     "Bottoms",
     "Denim",
     "Outerwear",
@@ -193,6 +194,8 @@ def _infer_category_from_rack(rack: str) -> str | None:
     r = (rack or "").strip().lower()
     if not r:
         return None
+    if "sweater" in r:
+        return "Sweaters"
     if "shoe" in r:
         return "Shoes"
     if "jean" in r or "denim" in r:
@@ -219,6 +222,7 @@ def _norm_category(raw: str) -> tuple[str, bool]:
     if not s:
         return "Other", False
     lookup = {c.lower(): c for c in CATEGORIES}
+    lookup["sweater"] = "Sweaters"
     if s.lower() in lookup:
         return lookup[s.lower()], True
     return s, False

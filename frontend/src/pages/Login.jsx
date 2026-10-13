@@ -74,10 +74,10 @@ export default function Login() {
               data-testid="login-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@elegantexchange.co"
+              placeholder="shop@elegantexchange.co"
               type="email"
               required
-              className="mt-1"
+              className="mt-1 placeholder:text-neutral-300"
             />
           </div>
           <div>

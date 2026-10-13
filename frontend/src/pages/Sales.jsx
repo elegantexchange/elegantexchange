@@ -28,6 +28,7 @@ import {
   canOpenSquarePos,
   parseSquarePosCallback,
 } from "@/lib/squarePos";
+import { activeDiscountFor, discountedPrice, percentLabel } from "@/lib/discounts";
 
 const TONES = {
   pending: {
@@ -586,6 +587,7 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
   const [busy, setBusy] = useState(false);
   const [charging, setCharging] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [discounts, setDiscounts] = useState([]);
 
   const squareReady = Boolean(square?.connected && square?.application_id);
   const onPosDevice = canOpenSquarePos();
@@ -605,6 +607,7 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
       setNotes("");
       setSearch("");
       setShowNotes(false);
+      api.get("/settings").then((r) => setDiscounts(r.data?.discounts || [])).catch(() => {});
     }
   }, [open]);
 
@@ -620,6 +623,7 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
   }, [items, query]);
 
   const selected = items.find((i) => i.item_id === itemId);
+  const selectedDeal = activeDiscountFor(selected, discounts);
   const price = Number(salePrice) || 0;
   const consignorPct = splitPctForItem(selected);
   const storePct = Math.round((100 - consignorPct) * 100) / 100;
@@ -627,8 +631,12 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
   const storeCut = Math.round((price - consignorCut) * 100) / 100;
 
   const pickItem = (i) => {
+    const deal = activeDiscountFor(i, discounts);
+    const price = deal
+      ? discountedPrice(i.asking_price, deal.percent_off)
+      : i.asking_price;
     setItemId(i.item_id);
-    setSalePrice(String(i.asking_price ?? ""));
+    setSalePrice(price == null ? "" : String(price));
     setSearch("");
   };
 
@@ -734,8 +742,19 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
                             <span className="font-semibold">{i.item_id}</span>
                             <span className="text-neutral-500"> · {i.description}</span>
                           </span>
-                          <span className="text-neutral-500 shrink-0 tabular-nums">
-                            {fmtMoney(i.asking_price)}
+                          <span className="text-neutral-500 shrink-0 tabular-nums text-right">
+                            {(() => {
+                              const deal = activeDiscountFor(i, discounts);
+                              if (!deal) return fmtMoney(i.asking_price);
+                              return (
+                                <>
+                                  {fmtMoney(discountedPrice(i.asking_price, deal.percent_off))}
+                                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ee-magenta)]">
+                                    {percentLabel(deal.percent_off)}% off
+                                  </span>
+                                </>
+                              );
+                            })()}
                           </span>
                         </div>
                       </motion.button>
@@ -783,6 +802,12 @@ function LogSaleDialog({ open, onClose, onCreated, retailView, square }) {
                     {selected.item_id}
                   </button>
                 </div>
+                {selectedDeal ? (
+                  <p className="text-[12px] text-[var(--ee-magenta)]">
+                    {percentLabel(selectedDeal.percent_off)}% off {selectedDeal.category} · tag{" "}
+                    {fmtMoney(selected.asking_price)}
+                  </p>
+                ) : null}
                 {!retailView ? (
                   <p className="text-[12px] text-neutral-500 tabular-nums">
                     Split {storePct}/{consignorPct} · store {fmtMoney(storeCut)} ·

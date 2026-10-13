@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { api, fmtMoney, fmtDate, formatApiError } from "@/lib/api";
+import { SalePrice } from "@/components/SalePrice";
 import StatusPill from "@/components/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1233,6 +1234,7 @@ export default function Inventory() {
   const retailView = roleOf(user) === "retail";
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
+  const [discounts, setDiscounts] = useState([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
@@ -1266,6 +1268,7 @@ export default function Inventory() {
   useEffect(() => {
     load();
     api.get("/consignors").then((r) => setConsignors(r.data)).catch(() => {});
+    api.get("/settings").then((r) => setDiscounts(r.data?.discounts || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1966,7 +1969,7 @@ export default function Inventory() {
                           className="text-[13px] font-semibold tabular-nums"
                           style={{ color: tone.ink }}
                         >
-                          {fmtMoney(i.asking_price)}
+                          <SalePrice item={i} discounts={discounts} />
                         </div>
                         <div className="mt-0.5">
                           <TonePill tone={tone} />
@@ -2064,7 +2067,7 @@ export default function Inventory() {
                           className="text-lg font-bold tabular-nums"
                           style={{ color: tone.ink }}
                         >
-                          {fmtMoney(i.asking_price)}
+                          <SalePrice item={i} discounts={discounts} />
                         </div>
                         <div className="text-[11px] text-neutral-500">
                           {displayStatus(i)}
@@ -2150,7 +2153,7 @@ export default function Inventory() {
                         className="px-3 py-2.5 text-right tabular-nums font-semibold"
                         style={{ color: tone.ink }}
                       >
-                        {fmtMoney(i.asking_price)}
+                        <SalePrice item={i} discounts={discounts} />
                       </td>
                       <td className="px-3 py-2.5 text-neutral-600 max-w-[160px] truncate">
                         {ownerLabel(i)}
@@ -2216,7 +2219,12 @@ export default function Inventory() {
                         className="text-xl sm:text-2xl font-bold tabular-nums"
                         style={{ color: focusedTone.ink }}
                       >
-                        {fmtMoney(focused.asking_price)}
+                        <SalePrice
+                          item={focused}
+                          discounts={discounts}
+                          detail
+                          ink={focusedTone.ink}
+                        />
                       </div>
                       <span
                         className="inline-flex mt-1 text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"

@@ -14,6 +14,7 @@ from csv_import_utils import normalize_external_id, parse_flexible_date, parse_m
 CATEGORIES = [
     "Dresses",
     "Tops",
+    "Sweaters",
     "Bottoms",
     "Denim",
     "Outerwear",
@@ -28,7 +29,7 @@ CONFIDENCE = {"high", "medium", "low"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
-_SYSTEM_PROMPT = """You help boutique consignment staff digitize inventory from two photos:
+_SYSTEM_PROMPT = f"""You help boutique consignment staff digitize inventory from two photos:
 1) ITEM photo — the garment/accessory itself
 2) TAG photo — the paper/plastic tag on the item
 
@@ -44,7 +45,7 @@ From the TAG (prefer printed/handwritten tag text):
 From the ITEM photo (and tag when helpful):
 - description: clear boutique-style description (e.g. "Cream textured crossbody bag")
 - color: primary color
-- category: MUST be one of: Dresses, Tops, Bottoms, Denim, Outerwear, Handbags, Shoes, Accessories, Jewelry, Other
+- category: MUST be one of: {", ".join(CATEGORIES)}
 - size: if visible on tag or garment
 - condition: one of Excellent, Like New, Very Good, Good, Fair if you can judge; else empty
 - rack: only if clearly written on tag

@@ -16,6 +16,12 @@ const ease = [0.22, 1, 0.36, 1];
 const panel =
   "rounded-[11px] border border-[var(--ee-sidebar-border)] bg-[var(--ee-panel)]";
 
+const SQUARE_NOTICES = {
+  error: { code: "oauth_error", message: "Square didn’t connect." },
+  invalid_state: { code: "invalid_state", message: "Square login didn’t match. Connect again." },
+  token_error: { code: "token_error", message: "Square didn’t finish connecting." },
+};
+
 const ICONS = {
   account: UserRound,
   shop: Store,
@@ -26,6 +32,7 @@ export default function Settings() {
   const { user } = useAuth();
   const chapters = useMemo(() => chaptersForUser(user), [user]);
   const [open, setOpen] = useState({ account: true, shop: false, team: false });
+  const [squareNotice, setSquareNotice] = useState(null);
   const [params, setParams] = useSearchParams();
 
   useEffect(() => {
@@ -33,9 +40,10 @@ export default function Settings() {
     if (flag === "connected") {
       toast.success("Square connected");
       setOpen((o) => ({ ...o, shop: true }));
-    } else if (flag === "error") toast.error("Square OAuth failed");
-    else if (flag === "invalid_state") toast.error("Square OAuth state mismatch");
-    else if (flag === "token_error") toast.error("Square token exchange failed");
+    } else if (SQUARE_NOTICES[flag]) {
+      setSquareNotice(SQUARE_NOTICES[flag]);
+      setOpen((o) => ({ ...o, shop: true }));
+    }
     if (flag) {
       params.delete("square");
       setParams(params, { replace: true });
@@ -119,7 +127,7 @@ export default function Settings() {
                       className="overflow-hidden"
                     >
                       <div className="px-5 md:px-8 pb-6 pl-14 md:pl-[4.5rem]">
-                        <ChapterBody chapterId={c.id} />
+                        <ChapterBody chapterId={c.id} squareNotice={squareNotice} />
                       </div>
                     </motion.div>
                   )}

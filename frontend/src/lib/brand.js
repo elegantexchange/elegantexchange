@@ -9,6 +9,7 @@ export const STORE = {
 export const CATEGORIES = [
   "Dresses",
   "Tops",
+  "Sweaters",
   "Bottoms",
   "Denim",
   "Outerwear",
@@ -48,6 +49,7 @@ export const ONE_SIZE = "One size";
 const APPAREL_CATEGORIES = new Set([
   "Dresses",
   "Tops",
+  "Sweaters",
   "Bottoms",
   "Denim",
   "Outerwear",

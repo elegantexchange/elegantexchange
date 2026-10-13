@@ -7,6 +7,7 @@ import re
 CATEGORIES = (
     "Dresses",
     "Tops",
+    "Sweaters",
     "Bottoms",
     "Denim",
     "Outerwear",
@@ -60,6 +61,15 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
         (r"dress", r"gown", r"romper", r"jumpsuit", r"sundress"),
     ),
     (
+        "Sweaters",
+        (
+            r"sweater",
+            r"jumper",
+            r"pullover",
+            r"cardigan",
+        ),
+    ),
+    (
         "Outerwear",
         (
             r"coat",
@@ -69,7 +79,6 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
             r"trench",
             r"puffer",
             r"windbreaker",
-            r"cardigan",
             r"hoodie",
             r"poncho",
             r"cape",
@@ -103,8 +112,6 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
             r"shirts?",
             r"\btees?\b",
             r"t[\s-]?shirts?",
-            r"sweater",
-            r"jumper",
             r"tank",
             r"camisole",
             r"\bcamis?\b",
@@ -113,7 +120,6 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
             r"bodysuit",
             r"crop",
             r"henley",
-            r"pullover",
         ),
     ),
     (

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, fmtDateTime, formatApiError, API_BASE } from "@/lib/api";
+import { api, fmtDate, fmtDateTime, formatApiError, API_BASE } from "@/lib/api";
+import { CATEGORIES } from "@/lib/brand";
+import DateField from "@/components/DateField";
+import { percentLabel } from "@/lib/discounts";
 import { useAuth } from "@/context/AuthContext";
 import { ROLE_LABELS, roleOf, roleLabelFor, isAdmin } from "@/lib/auth";
-import { needsOperatorPick, readOperator, displayNameFor } from "@/lib/operator";
+import { needsOperatorPick, readOperator, displayNameFor, SHARED_SHOP_EMAIL } from "@/lib/operator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +28,7 @@ import { Plus, Trash2, Link as LinkIcon, RefreshCw } from "lucide-react";
 
 export const SETTINGS_CHAPTERS = [
   { id: "account", label: "My Account", blurb: "Your profile and password" },
-  { id: "shop", label: "Shop", blurb: "Square and commission split", adminOnly: true },
+  { id: "shop", label: "Shop", blurb: "Square, discounts, and commission split", adminOnly: true },
   { id: "team", label: "Team", blurb: "Invite and manage roles", adminOnly: true },
 ];
 
@@ -96,11 +99,6 @@ export function MyAccountPanel({ compact = false }) {
               disabled
               className="mt-1 bg-neutral-50"
             />
-            <p className="text-[12px] text-neutral-500 mt-1.5 font-light">
-              Floor presence for this shared shop login
-              {presence?.name ? ` · ${presence.name}` : ""}. Change person from the
-              welcome picker (sign out / sign in).
-            </p>
           </>
         ) : (
           <Input
@@ -152,19 +150,38 @@ export function MyAccountPanel({ compact = false }) {
   );
 }
 
-export function ShopPanel() {
+function squareFailure(e, fallbackCode) {
+  const status = e.response?.status;
+  return {
+    code: status ? `${fallbackCode}_${status}` : fallbackCode,
+    message: formatApiError(e.response?.data?.detail) || e.message || "Something went wrong.",
+  };
+}
+
+export function ShopPanel({ squareNotice = null }) {
   const [square, setSquare] = useState(null);
   const [consignorSplitPct, setConsignorSplitPct] = useState(50);
   const [splitDraft, setSplitDraft] = useState("50");
   const [splitBusy, setSplitBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [squareError, setSquareError] = useState(squareNotice);
+  const [discounts, setDiscounts] = useState([]);
+  const [discountCategory, setDiscountCategory] = useState("Sweaters");
+  const [discountPercent, setDiscountPercent] = useState("20");
+  const [discountStart, setDiscountStart] = useState("");
+  const [discountEnd, setDiscountEnd] = useState("");
+  const [discountBusy, setDiscountBusy] = useState(false);
 
   useEffect(() => {
-    api.get("/square/status").then((r) => setSquare(r.data)).catch(() => {});
+    api
+      .get("/square/status")
+      .then((r) => setSquare(r.data))
+      .catch((e) => setSquareError(squareFailure(e, "status_failed")));
     api.get("/settings").then((r) => {
       const pct = Number(r.data?.consignor_split_pct ?? 50);
       setConsignorSplitPct(pct);
       setSplitDraft(String(pct));
+      setDiscounts(r.data?.discounts || []);
     }).catch(() => {});
   }, []);
 
@@ -197,25 +214,63 @@ export function ShopPanel() {
   const disconnect = async () => {
     try {
       await api.post("/square/disconnect");
+      setSquareError(null);
       toast.success("Disconnected from Square");
       const r = await api.get("/square/status");
       setSquare(r.data);
     } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+      setSquareError(squareFailure(e, "disconnect_failed"));
     }
   };
 
   const sync = async () => {
     setSyncing(true);
+    setSquareError(null);
     try {
       const { data } = await api.post("/square/sync");
       toast.success(`Synced · ${data.matched} matched, ${data.unmatched} need review`);
       const r = await api.get("/square/status");
       setSquare(r.data);
     } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+      setSquareError(squareFailure(e, "sync_failed"));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveDiscount = async () => {
+    const pct = Number(discountPercent);
+    if (!discountCategory) return toast.error("Choose a category");
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 90) {
+      return toast.error("Percent off must be between 1 and 90");
+    }
+    if (!discountStart || !discountEnd) return toast.error("Choose a start and end date");
+    if (discountEnd < discountStart) return toast.error("End date is before the start date");
+    setDiscountBusy(true);
+    try {
+      const { data } = await api.post("/settings/discounts", {
+        category: discountCategory,
+        percent_off: pct,
+        starts_on: discountStart,
+        ends_on: discountEnd,
+      });
+      setDiscounts(data.discounts || []);
+      setDiscountStart("");
+      setDiscountEnd("");
+      toast.success(`${percentLabel(pct)}% off ${discountCategory} saved`);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setDiscountBusy(false);
+    }
+  };
+
+  const removeDiscount = async (id) => {
+    try {
+      const { data } = await api.delete(`/settings/discounts/${id}`);
+      setDiscounts(data.discounts || []);
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || e.message);
     }
   };
 
@@ -223,25 +278,27 @@ export function ShopPanel() {
   const consignorDraft = Number.isNaN(draftPct) ? 0 : Math.min(100, Math.max(0, draftPct));
   const storeDraft = Math.round((100 - consignorDraft) * 100) / 100;
 
+  const setupError =
+    square && square.configured === false
+      ? { code: "not_configured", message: "Square isn’t set up on the server." }
+      : null;
+  const visibleError = squareError || setupError;
+  const squareState = visibleError
+    ? visibleError.code
+    : square == null
+      ? "loading"
+      : square.connected
+        ? "connected"
+        : "ready";
+
   return (
     <div className="space-y-8" data-testid="settings-shop">
-      <div>
+      <div data-square-state={squareState}>
         <h3 className="ee-section-header text-base mb-3">Square POS</h3>
         <p className="text-sm text-neutral-500 font-light mb-4">
-          Connect your Square account here. Then charge from Sales on the floor iPad — payments
-          stay tied to each piece and consignor. Sales today and the Sales list refresh from
-          Square on their own (about every minute). Use Sync only if you need an immediate
-          pull. If Sync says unauthorized, Disconnect and Connect again to refresh login.
+          Connect Square to charge from Sales.
         </p>
-        {!square?.configured ? (
-          <p className="text-sm text-amber-800/80">
-            Square credentials aren’t configured on the server yet. Add{" "}
-            <code className="text-xs">SQUARE_APPLICATION_ID</code>,{" "}
-            <code className="text-xs">SQUARE_APPLICATION_SECRET</code>, and{" "}
-            <code className="text-xs">SQUARE_REDIRECT_URI</code> to the backend{" "}
-            <code className="text-xs">.env</code>, then restart.
-          </p>
-        ) : square?.connected ? (
+        {square?.configured && square?.connected ? (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[var(--ee-border)] pb-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -277,7 +334,7 @@ export function ShopPanel() {
               </button>
             </div>
           </div>
-        ) : (
+        ) : square?.configured ? (
           <Button
             data-testid="settings-connect-square"
             onClick={connectSquare}
@@ -285,13 +342,124 @@ export function ShopPanel() {
           >
             <LinkIcon size={14} className="mr-1" /> Connect Square
           </Button>
+        ) : null}
+        {visibleError ? (
+          <p
+            className="text-sm text-amber-800/80 mt-3"
+            data-testid="settings-square-error"
+            data-square-error={visibleError.code}
+          >
+            {visibleError.message}
+          </p>
+        ) : null}
+      </div>
+
+      <div data-testid="settings-discounts-section">
+        <h3 className="ee-section-header text-base mb-1">Discounts</h3>
+        <p className="text-sm text-neutral-500 font-light mb-4">
+          Tags stay full price. Charge uses the discount.
+        </p>
+        {discounts.length > 0 ? (
+          <ul className="mb-4 divide-y divide-[var(--ee-border)] border-y border-[var(--ee-border)]">
+            {discounts.map((d) => (
+              <li
+                key={d.id}
+                className="flex items-center justify-between gap-3 py-2.5"
+                data-testid={`settings-discount-${d.id}`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm text-neutral-800">
+                    {percentLabel(d.percent_off)}% off {d.category}
+                    {d.active ? (
+                      <span className="ml-2 text-[10px] uppercase tracking-[0.12em] font-semibold text-[var(--ee-magenta)]">
+                        On now
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-[12px] text-neutral-400">
+                    {fmtDate(d.starts_on)} – {fmtDate(d.ends_on)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeDiscount(d.id)}
+                  className="text-[12px] text-neutral-500 hover:text-neutral-800 shrink-0"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-neutral-400 font-light mb-4">No discounts yet.</p>
         )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+              Category
+            </Label>
+            <Select value={discountCategory} onValueChange={setDiscountCategory}>
+              <SelectTrigger data-testid="settings-discount-category" className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CATEGORIES.filter((c) => c !== "Other").map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+              Percent off
+            </Label>
+            <Input
+              data-testid="settings-discount-percent"
+              type="number"
+              min={1}
+              max={90}
+              value={discountPercent}
+              onChange={(e) => setDiscountPercent(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+              Starts
+            </Label>
+            <DateField
+              value={discountStart}
+              onChange={setDiscountStart}
+              testId="settings-discount-start"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] tracking-[0.18em] uppercase font-semibold">
+              Ends
+            </Label>
+            <DateField
+              value={discountEnd}
+              onChange={setDiscountEnd}
+              testId="settings-discount-end"
+            />
+          </div>
+        </div>
+        <Button
+          data-testid="settings-discount-save"
+          disabled={discountBusy}
+          onClick={saveDiscount}
+          className="ee-btn-label bg-[var(--ee-magenta)] hover:bg-[#6f1655] text-white mt-4"
+        >
+          Add discount
+        </Button>
       </div>
 
       <div data-testid="settings-split-section">
         <h3 className="ee-section-header text-base mb-1">Commission Split</h3>
         <p className="text-sm text-neutral-500 font-light mb-5">
-          Default for new intakes. Existing pieces keep their stamped rate.
+          For new pieces only.
         </p>
 
         <div className="grid grid-cols-2 gap-6 mb-4">
@@ -590,8 +758,8 @@ function InviteUserDialog({ open, onClose, onDone }) {
   );
 }
 
-export function ChapterBody({ chapterId }) {
-  if (chapterId === "shop") return <ShopPanel />;
+export function ChapterBody({ chapterId, squareNotice = null }) {
+  if (chapterId === "shop") return <ShopPanel squareNotice={squareNotice} />;
   if (chapterId === "team") return <TeamPanel />;
   return <MyAccountPanel />;
 }
