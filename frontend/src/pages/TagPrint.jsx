@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtMoney } from "@/lib/api";
 import { code128Svg } from "@/lib/code128";
-import { Printer } from "lucide-react";
+import { backLabelBlob, ensureLabelFonts, shareLabelFiles } from "@/lib/thermalLabel";
+import { Printer, Tag } from "lucide-react";
 
 /** Sample hangtags so founders can preview print without pulling live inventory. */
 const DEMO_TAGS = [
@@ -61,6 +62,54 @@ export default function TagPrint() {
       .finally(() => setLoading(false));
   }, [demo, ids]);
 
+  // Pre-render each label as an exact 2×2 PNG so the tap goes straight to the
+  // share sheet — Safari only allows sharing directly from a tap.
+  const [labelFiles, setLabelFiles] = useState([]);
+  const [thermalMsg, setThermalMsg] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setLabelFiles([]);
+    if (!items.length) return undefined;
+    (async () => {
+      await ensureLabelFonts();
+      const files = await Promise.all(
+        items.map(async (it) => {
+          const { product, size } = labelCopy(it);
+          const blob = await backLabelBlob({
+            size,
+            product,
+            price: fmtMoney(it.asking_price),
+            itemId: it.item_id,
+          });
+          return new File([blob], `tag-${it.item_id}.png`, { type: "image/png" });
+        })
+      );
+      if (!cancelled) setLabelFiles(files);
+    })().catch(() => !cancelled && setThermalMsg("Couldn't prepare the label images."));
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  const markPrinted = () => {
+    if (!demo && ids.length) {
+      api.post("/inventory/tags-printed", { item_ids: ids }).catch(() => {});
+    }
+  };
+
+  const sendToMunbyn = async () => {
+    setThermalMsg("");
+    markPrinted();
+    try {
+      const how = await shareLabelFiles(labelFiles);
+      if (how === "downloaded") {
+        setThermalMsg("Saved the label images — open them in the Munbyn app to print.");
+      }
+    } catch (e) {
+      if (e?.name !== "AbortError") setThermalMsg("Sharing was blocked — tap the button again.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[var(--ee-bg)] py-8 print:bg-white print:py-0">
       <div className="max-w-[8.5in] mx-auto px-4 print:px-0">
@@ -79,23 +128,39 @@ export default function TagPrint() {
               {demo ? " Showing sample pieces." : null}
             </p>
           </div>
-          <button
-            data-testid="print-now"
-            type="button"
-            onClick={async () => {
-              if (!demo && ids.length) {
-                try {
-                  await api.post("/inventory/tags-printed", { item_ids: ids });
-                } catch {
-                  /* still print if the queue update fails */
-                }
-              }
-              window.print();
-            }}
-            className="ee-btn-label bg-[var(--ee-magenta)] text-white px-4 py-2.5 rounded hover:bg-[#6f1655] inline-flex items-center justify-center gap-2 shrink-0"
-          >
-            <Printer size={14} /> Print labels
-          </button>
+          <div className="flex flex-col items-stretch sm:items-end gap-2 shrink-0">
+            <button
+              data-testid="print-thermal"
+              type="button"
+              disabled={!labelFiles.length}
+              onClick={sendToMunbyn}
+              className="ee-btn-label bg-[var(--ee-magenta)] text-white px-4 py-2.5 rounded hover:bg-[#6f1655] disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              <Tag size={14} />
+              {labelFiles.length ? "Print on label printer" : "Preparing labels…"}
+            </button>
+            <button
+              data-testid="print-now"
+              type="button"
+              onClick={() => {
+                markPrinted();
+                window.print();
+              }}
+              className="ee-btn-label text-[var(--ee-magenta)] px-2 py-1 inline-flex items-center justify-center gap-2 text-[11px]"
+            >
+              <Printer size={12} /> Print on letter sheet instead
+            </button>
+          </div>
+        </div>
+
+        <div className="no-print mb-6 text-[13px] text-neutral-700 font-light leading-relaxed bg-white border border-neutral-200 rounded-lg p-4 max-w-2xl">
+          <span className="font-semibold text-neutral-900">Label printer:</span> tap{" "}
+          <em>Print on label printer</em>, choose the <strong>Munbyn</strong> app in the
+          share sheet, then Print. Each tag is sent as its own exact 2″ × 2″ image —
+          one image, one label.
+          {thermalMsg ? (
+            <div className="mt-2 text-[var(--ee-magenta)] font-medium">{thermalMsg}</div>
+          ) : null}
         </div>
 
         <div id="print-area" className="ee-label-sheet">
