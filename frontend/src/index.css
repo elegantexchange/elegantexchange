@@ -382,6 +382,22 @@ body {
     }
 }
 
+/* Nohemi (Regular + Medium) for the 2×2 back labels — files in public/fonts */
+@font-face {
+    font-family: "Nohemi";
+    src: url("/fonts/Nohemi-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: "Nohemi";
+    src: url("/fonts/Nohemi-Medium.woff2") format("woff2");
+    font-weight: 500;
+    font-style: normal;
+    font-display: block;
+}
+
 /* 2×2 in back-of-hangtag labels */
 .ee-label-grid {
     display: flex;
@@ -397,9 +413,12 @@ body {
     padding: 0.12in 0.12in 0.08in;
     border-radius: 0.1in;
     background: #fff;
-    color: #161616;
+    color: #000;
     display: flex;
     flex-direction: column;
+    text-rendering: geometricPrecision;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
     page-break-inside: avoid;
     break-inside: avoid;
     box-shadow:
@@ -415,26 +434,37 @@ body {
     min-height: 0.22in;
 }
 
+/* Pure black everywhere on the label so printers lay down full toner/ink. */
+.ee-back-label * {
+    color: #000;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
 .ee-back-kicker {
     flex: none;
-    font-family: "Montserrat", ui-sans-serif, sans-serif;
-    font-size: 6.5pt;
-    font-weight: 600;
-    letter-spacing: 0.16em;
+    font-family: "Nohemi", ui-sans-serif, sans-serif;
+    font-size: 7pt;
+    font-weight: 500;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     line-height: 1;
-    color: #1a1a1a;
+    color: #000;
+    -webkit-text-stroke: 0.15px #000;
 }
 
 .ee-back-value {
     flex: 1;
     min-width: 0;
-    font-family: "Cormorant Garamond", "Times New Roman", serif;
-    font-size: 12.5pt;
-    font-weight: 600;
-    line-height: 1.02;
+    /* Nohemi Medium instead of the hairline serif: thin strokes print faded.
+       The light text-stroke adds ink density without changing the letterforms. */
+    font-family: "Nohemi", ui-sans-serif, sans-serif;
+    font-size: 12pt;
+    font-weight: 500;
+    line-height: 1.05;
     text-align: right;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
+    -webkit-text-stroke: 0.25px #000;
 }
 
 .ee-back-product {
@@ -444,13 +474,14 @@ body {
 
 .ee-back-price {
     font-size: 16pt;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    -webkit-text-stroke: 0.3px #000;
 }
 
 .ee-back-rule {
-    height: 1px;
-    background: #1a1a1a;
+    height: 1.5pt;
+    background: #000;
     margin: 0.045in 0 0.03in;
     flex: none;
 }
@@ -476,12 +507,13 @@ body {
 
 .ee-back-id {
     margin-top: 0.045in;
-    font-family: "Montserrat", ui-sans-serif, sans-serif;
-    font-size: 7.5pt;
-    font-weight: 500;
-    letter-spacing: 0.14em;
+    font-family: "Nohemi", ui-sans-serif, sans-serif;
+    font-size: 8pt;
+    font-weight: 400;
+    letter-spacing: 0.12em;
     line-height: 1;
     text-align: center;
+    -webkit-text-stroke: 0.2px #000;
 }
 
 
