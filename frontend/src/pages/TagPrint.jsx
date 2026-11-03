@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtMoney } from "@/lib/api";
-import { code128Svg } from "@/lib/code128";
 import { backLabelBlob, ensureLabelFonts, shareLabelFiles } from "@/lib/thermalLabel";
 import { Tag } from "lucide-react";
 
@@ -190,7 +189,11 @@ export default function TagPrint() {
                   className="ee-back-label-img"
                 />
               ) : (
-                <HangTag key={it.item_id} item={it} />
+                <div
+                  key={it.item_id}
+                  className="ee-back-label-img"
+                  aria-hidden
+                />
               )
             ))}
           </div>
@@ -208,67 +211,4 @@ function labelCopy(item) {
   const category = (item.category || "").trim();
   const size = (item.size || "").trim();
   return { product: category || "—", size: size || "—" };
-}
-
-/** Keep the product name on one line by stepping the type down until it fits. */
-function FitLine({ children, className }) {
-  const ref = useRef(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.fontSize = "";
-    const max = parseFloat(getComputedStyle(el).fontSize);
-    let size = max;
-    while (el.scrollWidth > el.clientWidth + 0.5 && size > 8.5) {
-      size -= 0.25;
-      el.style.fontSize = `${size}px`;
-    }
-  }, [children]);
-  return (
-    <div ref={ref} className={className}>
-      {children}
-    </div>
-  );
-}
-
-function barcodeMarkup(itemId) {
-  try {
-    return code128Svg(itemId, { maxWidthIn: 1.76, barHeightIn: 0.58 });
-  } catch {
-    return "";
-  }
-}
-
-function HangTag({ item }) {
-  const { product, size } = labelCopy(item);
-  const bars = barcodeMarkup(item.item_id);
-
-  return (
-    <article className="ee-back-label" data-testid={`hangtag-${item.item_id}`}>
-      <div className="ee-back-row">
-        <div className="ee-back-kicker">Size</div>
-        <div className="ee-back-value">{size}</div>
-      </div>
-      <div className="ee-back-rule" />
-      <div className="ee-back-row">
-        <div className="ee-back-kicker">Product</div>
-        <FitLine className="ee-back-value ee-back-product">{product}</FitLine>
-      </div>
-      <div className="ee-back-rule" />
-      <div className="ee-back-row">
-        <div className="ee-back-kicker">Price</div>
-        <div className="ee-back-value ee-back-price">{fmtMoney(item.asking_price)}</div>
-      </div>
-      <div className="ee-back-code">
-        {bars ? (
-          <div
-            className="ee-back-barcode"
-            aria-hidden
-            dangerouslySetInnerHTML={{ __html: bars }}
-          />
-        ) : null}
-        <div className="ee-back-id">{item.item_id}</div>
-      </div>
-    </article>
-  );
 }
