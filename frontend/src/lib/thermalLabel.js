@@ -14,8 +14,25 @@ export const LABEL_DPI = 203;
 export const LABEL_IN = 2;
 export const LABEL_PX = Math.round(LABEL_DPI * LABEL_IN); // 406
 
-const PAD = 22; // ~0.11in safe margin
+const PAD = 26; // ~0.13in safe margin on every side
 const FONT = '"Montserrat", "Helvetica Neue", Arial, sans-serif';
+
+/** Printer alignment. The RW403B lands the image a little left of the label
+ * (about 0.12in, measured from a test print), so everything is drawn this many
+ * printer dots to the right to come out centered. 203 dots = 1 inch.
+ * Positive = move right / down. Tweak in steps of 4–6 if a test print is off. */
+export const NUDGE_X = 24;
+export const NUDGE_Y = 0;
+
+/** Type sizes in printer dots (203 per inch). */
+const KICKER_PX = 13;
+const SIZE_PX = 28;
+const PRODUCT_PX = 24;
+const PRICE_PX = 34;
+const ID_PX = 17;
+const BAR_HEIGHT = 128;
+/** Weight for the size, product and price values (Montserrat 500 = Medium). */
+const VALUE_WEIGHT = 500;
 
 /** Make sure Montserrat is ready before drawing so the canvas doesn't fall back mid-batch. */
 export async function ensureLabelFonts() {
@@ -23,6 +40,7 @@ export async function ensureLabelFonts() {
   try {
     await Promise.all([
       document.fonts.load(`700 34px ${FONT}`),
+      document.fonts.load(`${VALUE_WEIGHT} 34px ${FONT}`),
       document.fonts.load(`600 15px ${FONT}`),
     ]);
   } catch {
@@ -62,10 +80,10 @@ function fitFont(ctx, text, weight, maxPx, minPx, maxWidth) {
 
 function row(ctx, kicker, value, centerY, valuePx) {
   ctx.textBaseline = "middle";
-  ctx.font = `600 15px ${FONT}`;
-  const kw = spacedText(ctx, kicker.toUpperCase(), PAD, centerY, 2.5);
+  ctx.font = `600 ${KICKER_PX}px ${FONT}`;
+  const kw = spacedText(ctx, kicker.toUpperCase(), PAD, centerY, 2);
   const maxW = LABEL_PX - PAD * 2 - kw - 14;
-  const shown = fitFont(ctx, value, 700, valuePx, 18, maxW);
+  const shown = fitFont(ctx, value, VALUE_WEIGHT, valuePx, 16, maxW);
   ctx.textAlign = "right";
   ctx.fillText(shown, LABEL_PX - PAD, centerY + 1);
   ctx.textAlign = "left";
@@ -113,20 +131,32 @@ export function drawBackLabel(canvas, { size, product, price, itemId }) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, LABEL_PX, LABEL_PX);
   ctx.fillStyle = "#000";
+  ctx.save();
+  ctx.translate(NUDGE_X, NUDGE_Y);
 
-  row(ctx, "Size", size, PAD + 24, 34);
-  rule(ctx, PAD + 50);
-  row(ctx, "Product", product, PAD + 78, 28);
-  rule(ctx, PAD + 104);
-  row(ctx, "Price", price, PAD + 134, 40);
+  // Stack, top to bottom (offsets from the first row's centre line):
+  // three rows 50 dots apart with a rule between each, then the barcode and SKU.
+  const ROW_GAP = 50;
+  const barGap = 30; // price row centre → top of bars
+  const idGap = 10; // bottom of bars → SKU
+  const top = -SIZE_PX / 2; // first row's text starts half a line above its centre
+  const bottom = ROW_GAP * 2 + barGap + BAR_HEIGHT + idGap + ID_PX;
+  // Centre the whole stack vertically on the label.
+  const y0 = Math.round((LABEL_PX - (bottom - top)) / 2 - top);
 
-  const barTop = PAD + 170;
-  const barHeight = 140;
-  drawBarcode(ctx, itemId, barTop, barHeight);
+  row(ctx, "Size", size, y0, SIZE_PX);
+  rule(ctx, y0 + ROW_GAP / 2);
+  row(ctx, "Product", product, y0 + ROW_GAP, PRODUCT_PX);
+  rule(ctx, y0 + ROW_GAP * 1.5);
+  row(ctx, "Price", price, y0 + ROW_GAP * 2, PRICE_PX);
+
+  const barTop = y0 + ROW_GAP * 2 + barGap;
+  drawBarcode(ctx, itemId, barTop, BAR_HEIGHT);
 
   ctx.textBaseline = "top";
-  ctx.font = `700 20px ${FONT}`;
-  spacedText(ctx, String(itemId), LABEL_PX / 2, barTop + barHeight + 10, 3, "center");
+  ctx.font = `700 ${ID_PX}px ${FONT}`;
+  spacedText(ctx, String(itemId), LABEL_PX / 2, barTop + BAR_HEIGHT + idGap, 2.5, "center");
+  ctx.restore();
 
   threshold(ctx);
   return canvas;
