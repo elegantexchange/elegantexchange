@@ -65,6 +65,56 @@ export default function TagPrint() {
   // Pre-render each label as an exact 2×2 PNG so the tap goes straight to the
   // share sheet — Safari only allows sharing directly from a tap.
   const [labelFiles, setLabelFiles] = useState([]);
+  // Same drawing, centred (no printer nudge) — shown on screen so the preview
+  // matches what actually prints, and used for the letter sheet.
+  const [previews, setPreviews] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const urls = [];
+    setPreviews([]);
+    if (!items.length) return undefined;
+    (async () => {
+      await ensureLabelFonts();
+      for (const it of items) {
+        const { product, size } = labelCopy(it);
+        const blob = await backLabelBlob(
+          { size, product, price: fmtMoney(it.asking_price), itemId: it.item_id },
+          { nudge: false }
+        );
+        urls.push(URL.createObjectURL(blob));
+      }
+      if (!cancelled) setPreviews([...urls]);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [items]);
+  // Same drawing, centred (no printer nudge) — shown on screen so the preview
+  // matches what actually prints, and used for the letter sheet.
+  const [previews, setPreviews] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const urls = [];
+    setPreviews([]);
+    if (!items.length) return undefined;
+    (async () => {
+      await ensureLabelFonts();
+      for (const it of items) {
+        const { product, size } = labelCopy(it);
+        const blob = await backLabelBlob(
+          { size, product, price: fmtMoney(it.asking_price), itemId: it.item_id },
+          { nudge: false }
+        );
+        urls.push(URL.createObjectURL(blob));
+      }
+      if (!cancelled) setPreviews([...urls]);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [items]);
   const [thermalMsg, setThermalMsg] = useState("");
   useEffect(() => {
     let cancelled = false;
@@ -165,8 +215,28 @@ export default function TagPrint() {
 
         <div id="print-area" className="ee-label-sheet">
           <div className="ee-label-grid">
-            {items.map((it) => (
-              <HangTag key={it.item_id} item={it} />
+            {items.map((it, i) => (
+              previews[i] ? (
+                <img
+                  key={it.item_id}
+                  src={previews[i]}
+                  alt={`Label ${it.item_id}`}
+                  data-testid={`hangtag-${it.item_id}`}
+                  className="ee-back-label-img"
+                />
+              ) : (
+                previews[i] ? (
+                <img
+                  key={it.item_id}
+                  src={previews[i]}
+                  alt={`Label ${it.item_id}`}
+                  data-testid={`hangtag-${it.item_id}`}
+                  className="ee-back-label-img"
+                />
+              ) : (
+                <HangTag key={it.item_id} item={it} />
+              )
+              )
             ))}
           </div>
           {!loading && items.length === 0 && (

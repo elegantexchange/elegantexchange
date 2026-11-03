@@ -124,7 +124,9 @@ function threshold(ctx) {
   ctx.putImageData(img, 0, 0);
 }
 
-export function drawBackLabel(canvas, { size, product, price, itemId }) {
+/** `nudge: false` draws the label perfectly centred (for on-screen preview and
+ * letter sheets); the Munbyn images keep the nudge to offset the printer. */
+export function drawBackLabel(canvas, { size, product, price, itemId }, { nudge = true } = {}) {
   canvas.width = LABEL_PX;
   canvas.height = LABEL_PX;
   const ctx = canvas.getContext("2d");
@@ -132,7 +134,7 @@ export function drawBackLabel(canvas, { size, product, price, itemId }) {
   ctx.fillRect(0, 0, LABEL_PX, LABEL_PX);
   ctx.fillStyle = "#000";
   ctx.save();
-  ctx.translate(NUDGE_X, NUDGE_Y);
+  if (nudge) ctx.translate(NUDGE_X, NUDGE_Y);
 
   // Stack, top to bottom (offsets from the first row's centre line):
   // three rows 50 dots apart with a rule between each, then the barcode and SKU.
@@ -162,8 +164,8 @@ export function drawBackLabel(canvas, { size, product, price, itemId }) {
   return canvas;
 }
 
-export function backLabelBlob(fields) {
-  const canvas = drawBackLabel(document.createElement("canvas"), fields);
+export function backLabelBlob(fields, options) {
+  const canvas = drawBackLabel(document.createElement("canvas"), fields, options);
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png")
   );

@@ -8,7 +8,6 @@ import { useTour } from "@/context/TourContext";
 import { api } from "@/lib/api";
 import {
   clearPendingGuide,
-  hasPendingGuide,
   needsOnboarding,
   needsProductTour,
   roleOf,
@@ -224,24 +223,12 @@ export default function ProductTour() {
   const [vw, setVw] = useState(() => window.innerWidth);
   const [vh, setVh] = useState(() => window.innerHeight);
 
+  // The tour no longer opens on its own (after sign-in or for users who never
+  // finished it). It only opens from the Guide (compass) button or ?guide=1.
+  // Clear any leftover sign-in flag so it can't trigger later.
   useEffect(() => {
-    if (
-      !user ||
-      needsOnboarding(user) ||
-      location.pathname.startsWith("/onboarding") ||
-      tourOpen
-    ) {
-      return;
-    }
-    // After sign-in, or first-time users who never finished the guide
-    if (hasPendingGuide() || needsProductTour(user)) {
-      startTour(roleOf(user));
-    }
-  }, [user, location.pathname, tourOpen, startTour]);
-
-  useEffect(() => {
-    if (tourOpen) clearPendingGuide();
-  }, [tourOpen]);
+    clearPendingGuide();
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
