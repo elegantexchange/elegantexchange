@@ -2,14 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtMoney } from "@/lib/api";
 import { code128Svg } from "@/lib/code128";
-import {
-  LABEL_DPI,
-  NUDGE_X,
-  backLabelBlob,
-  ensureLabelFonts,
-  shareLabelFiles,
-} from "@/lib/thermalLabel";
-import { Printer, Tag } from "lucide-react";
+import { backLabelBlob, ensureLabelFonts, shareLabelFiles } from "@/lib/thermalLabel";
+import { Tag } from "lucide-react";
 
 /** Sample hangtags so founders can preview print without pulling live inventory. */
 const DEMO_TAGS = [
@@ -45,25 +39,8 @@ const DEMO_TAGS = [
   },
 ];
 
-/** Screen preview / letter sheet render at 4× the printer resolution (812 dpi). */
+/** Screen preview renders at 4× the printer resolution (812 dpi) so text is sharp. */
 const PREVIEW_SCALE = 4;
-const NUDGE_KEY = "ee_label_nudge_x";
-const NUDGE_STEP = 4; // printer dots ≈ 0.02″
-
-function readNudge() {
-  try {
-    const v = parseInt(localStorage.getItem(NUDGE_KEY), 10);
-    return Number.isFinite(v) ? v : NUDGE_X;
-  } catch {
-    return NUDGE_X;
-  }
-}
-
-function describeNudge(dots) {
-  if (!dots) return "Centered";
-  const inches = (Math.abs(dots) / LABEL_DPI).toFixed(2).replace(/^0/, "");
-  return `${inches}″ ${dots > 0 ? "right" : "left"}`;
-}
 
 export default function TagPrint() {
   const [params] = useSearchParams();
@@ -91,18 +68,8 @@ export default function TagPrint() {
   // Pre-render each label as an exact 2×2 PNG so the tap goes straight to the
   // share sheet — Safari only allows sharing directly from a tap.
   const [labelFiles, setLabelFiles] = useState([]);
-  // Printer alignment (in printer dots, + = right). Saved on this device so
-  // staff can line the Munbyn up once without a code change.
-  const [nudgeX, setNudgeX] = useState(readNudge);
-  useEffect(() => {
-    try {
-      localStorage.setItem(NUDGE_KEY, String(nudgeX));
-    } catch {
-      /* private mode — keep it for this visit */
-    }
-  }, [nudgeX]);
   // Same drawing, centred (no printer nudge) — shown on screen so the preview
-  // matches what actually prints, and used for the letter sheet.
+  // matches what actually prints.
   const [previews, setPreviews] = useState([]);
   useEffect(() => {
     let cancelled = false;
@@ -142,8 +109,7 @@ export default function TagPrint() {
               product,
               price: fmtMoney(it.asking_price),
               itemId: it.item_id,
-            },
-            { nudgeX }
+            }
           );
           return new File([blob], `tag-${it.item_id}.png`, { type: "image/png" });
         })
@@ -153,7 +119,7 @@ export default function TagPrint() {
     return () => {
       cancelled = true;
     };
-  }, [items, nudgeX]);
+  }, [items]);
 
   const markPrinted = () => {
     if (!demo && ids.length) {
@@ -203,64 +169,14 @@ export default function TagPrint() {
               <Tag size={14} />
               {labelFiles.length ? "Print on label printer" : "Preparing labels…"}
             </button>
-            <button
-              data-testid="print-now"
-              type="button"
-              onClick={() => {
-                markPrinted();
-                window.print();
-              }}
-              className="ee-btn-label text-[var(--ee-magenta)] px-2 py-1 inline-flex items-center justify-center gap-2 text-[11px]"
-            >
-              <Printer size={12} /> Print on letter sheet instead
-            </button>
           </div>
         </div>
 
-        <div className="no-print mb-6 text-[13px] text-neutral-700 font-light leading-relaxed bg-white border border-neutral-200 rounded-lg p-4 max-w-2xl">
-          <span className="font-semibold text-neutral-900">Label printer:</span> tap{" "}
-          <em>Print on label printer</em>, choose the <strong>Munbyn</strong> app in the
-          share sheet, then Print. Each tag is sent as its own exact 2″ × 2″ image —
-          one image, one label.
-          {thermalMsg ? (
-            <div className="mt-2 text-[var(--ee-magenta)] font-medium">{thermalMsg}</div>
-          ) : null}
-          <div className="mt-3 pt-3 border-t border-neutral-200 flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-neutral-900">Printer alignment:</span>
-            <button
-              type="button"
-              data-testid="nudge-left"
-              onClick={() => setNudgeX((n) => n - NUDGE_STEP)}
-              className="px-2 py-0.5 rounded border border-neutral-300 hover:bg-neutral-50"
-            >
-              ← Left
-            </button>
-            <span className="min-w-[6.5rem] text-center tabular-nums" data-testid="nudge-value">
-              {describeNudge(nudgeX)}
-            </span>
-            <button
-              type="button"
-              data-testid="nudge-right"
-              onClick={() => setNudgeX((n) => n + NUDGE_STEP)}
-              className="px-2 py-0.5 rounded border border-neutral-300 hover:bg-neutral-50"
-            >
-              Right →
-            </button>
-            {nudgeX !== NUDGE_X ? (
-              <button
-                type="button"
-                onClick={() => setNudgeX(NUDGE_X)}
-                className="px-2 py-0.5 text-neutral-500 underline underline-offset-2"
-              >
-                Reset
-              </button>
-            ) : null}
-            <span className="basis-full text-[12px] text-neutral-500">
-              If tags print off to one side, move them the other way and print one again.
-              Saved on this device.
-            </span>
+        {thermalMsg ? (
+          <div className="no-print mb-6 text-[13px] text-[var(--ee-magenta)] font-medium">
+            {thermalMsg}
           </div>
-        </div>
+        ) : null}
 
         <div id="print-area" className="ee-label-sheet">
           <div className="ee-label-grid">
@@ -284,11 +200,6 @@ export default function TagPrint() {
             </div>
           )}
         </div>
-
-        <p className="no-print mt-8 text-[12px] text-neutral-500 font-light leading-relaxed max-w-2xl">
-          In the print dialog choose letter paper, 100% scale, and turn off
-          headers and footers. Each label is exactly 2×2 inches.
-        </p>
       </div>
     </div>
   );
