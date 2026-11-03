@@ -382,21 +382,8 @@ body {
     }
 }
 
-/* Nohemi (Regular + Medium) for the 2×2 back labels — files in public/fonts */
-@font-face {
-    font-family: "Nohemi";
-    src: url("/fonts/Nohemi-Regular.woff2") format("woff2");
-    font-weight: 400;
-    font-style: normal;
-    font-display: block;
-}
-@font-face {
-    font-family: "Nohemi";
-    src: url("/fonts/Nohemi-Medium.woff2") format("woff2");
-    font-weight: 500;
-    font-style: normal;
-    font-display: block;
-}
+/* Nohemi @font-face lives in public/index.html (files in public/fonts) —
+   declaring it here makes the build try to bundle /fonts/... and fail. */
 
 /* 2×2 in back-of-hangtag labels */
 .ee-label-grid {
