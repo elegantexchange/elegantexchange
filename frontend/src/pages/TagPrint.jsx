@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtMoney } from "@/lib/api";
 import { code128Svg } from "@/lib/code128";
-import { backLabelBlob, ensureLabelFonts, shareLabelFiles } from "@/lib/thermalLabel";
+import {
+  LABEL_DPI,
+  NUDGE_X,
+  backLabelBlob,
+  ensureLabelFonts,
+  shareLabelFiles,
+} from "@/lib/thermalLabel";
 import { Printer, Tag } from "lucide-react";
 
 /** Sample hangtags so founders can preview print without pulling live inventory. */
@@ -39,6 +45,24 @@ const DEMO_TAGS = [
   },
 ];
 
+const NUDGE_KEY = "ee_label_nudge_x";
+const NUDGE_STEP = 4; // printer dots ≈ 0.02″
+
+function readNudge() {
+  try {
+    const v = parseInt(localStorage.getItem(NUDGE_KEY), 10);
+    return Number.isFinite(v) ? v : NUDGE_X;
+  } catch {
+    return NUDGE_X;
+  }
+}
+
+function describeNudge(dots) {
+  if (!dots) return "Centered";
+  const inches = (Math.abs(dots) / LABEL_DPI).toFixed(2).replace(/^0/, "");
+  return `${inches}″ ${dots > 0 ? "right" : "left"}`;
+}
+
 export default function TagPrint() {
   const [params] = useSearchParams();
   const [items, setItems] = useState([]);
@@ -65,31 +89,16 @@ export default function TagPrint() {
   // Pre-render each label as an exact 2×2 PNG so the tap goes straight to the
   // share sheet — Safari only allows sharing directly from a tap.
   const [labelFiles, setLabelFiles] = useState([]);
-  // Same drawing, centred (no printer nudge) — shown on screen so the preview
-  // matches what actually prints, and used for the letter sheet.
-  const [previews, setPreviews] = useState([]);
+  // Printer alignment (in printer dots, + = right). Saved on this device so
+  // staff can line the Munbyn up once without a code change.
+  const [nudgeX, setNudgeX] = useState(readNudge);
   useEffect(() => {
-    let cancelled = false;
-    const urls = [];
-    setPreviews([]);
-    if (!items.length) return undefined;
-    (async () => {
-      await ensureLabelFonts();
-      for (const it of items) {
-        const { product, size } = labelCopy(it);
-        const blob = await backLabelBlob(
-          { size, product, price: fmtMoney(it.asking_price), itemId: it.item_id },
-          { nudge: false }
-        );
-        urls.push(URL.createObjectURL(blob));
-      }
-      if (!cancelled) setPreviews([...urls]);
-    })().catch(() => {});
-    return () => {
-      cancelled = true;
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
-  }, [items]);
+    try {
+      localStorage.setItem(NUDGE_KEY, String(nudgeX));
+    } catch {
+      /* private mode — keep it for this visit */
+    }
+  }, [nudgeX]);
   // Same drawing, centred (no printer nudge) — shown on screen so the preview
   // matches what actually prints, and used for the letter sheet.
   const [previews, setPreviews] = useState([]);
@@ -125,12 +134,15 @@ export default function TagPrint() {
       const files = await Promise.all(
         items.map(async (it) => {
           const { product, size } = labelCopy(it);
-          const blob = await backLabelBlob({
-            size,
-            product,
-            price: fmtMoney(it.asking_price),
-            itemId: it.item_id,
-          });
+          const blob = await backLabelBlob(
+            {
+              size,
+              product,
+              price: fmtMoney(it.asking_price),
+              itemId: it.item_id,
+            },
+            { nudgeX }
+          );
           return new File([blob], `tag-${it.item_id}.png`, { type: "image/png" });
         })
       );
@@ -139,7 +151,7 @@ export default function TagPrint() {
     return () => {
       cancelled = true;
     };
-  }, [items]);
+  }, [items, nudgeX]);
 
   const markPrinted = () => {
     if (!demo && ids.length) {
@@ -211,6 +223,41 @@ export default function TagPrint() {
           {thermalMsg ? (
             <div className="mt-2 text-[var(--ee-magenta)] font-medium">{thermalMsg}</div>
           ) : null}
+          <div className="mt-3 pt-3 border-t border-neutral-200 flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-neutral-900">Printer alignment:</span>
+            <button
+              type="button"
+              data-testid="nudge-left"
+              onClick={() => setNudgeX((n) => n - NUDGE_STEP)}
+              className="px-2 py-0.5 rounded border border-neutral-300 hover:bg-neutral-50"
+            >
+              ← Left
+            </button>
+            <span className="min-w-[6.5rem] text-center tabular-nums" data-testid="nudge-value">
+              {describeNudge(nudgeX)}
+            </span>
+            <button
+              type="button"
+              data-testid="nudge-right"
+              onClick={() => setNudgeX((n) => n + NUDGE_STEP)}
+              className="px-2 py-0.5 rounded border border-neutral-300 hover:bg-neutral-50"
+            >
+              Right →
+            </button>
+            {nudgeX !== NUDGE_X ? (
+              <button
+                type="button"
+                onClick={() => setNudgeX(NUDGE_X)}
+                className="px-2 py-0.5 text-neutral-500 underline underline-offset-2"
+              >
+                Reset
+              </button>
+            ) : null}
+            <span className="basis-full text-[12px] text-neutral-500">
+              If tags print off to one side, move them the other way and print one again.
+              Saved on this device.
+            </span>
+          </div>
         </div>
 
         <div id="print-area" className="ee-label-sheet">
@@ -225,17 +272,7 @@ export default function TagPrint() {
                   className="ee-back-label-img"
                 />
               ) : (
-                previews[i] ? (
-                <img
-                  key={it.item_id}
-                  src={previews[i]}
-                  alt={`Label ${it.item_id}`}
-                  data-testid={`hangtag-${it.item_id}`}
-                  className="ee-back-label-img"
-                />
-              ) : (
                 <HangTag key={it.item_id} item={it} />
-              )
               )
             ))}
           </div>

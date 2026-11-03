@@ -17,11 +17,11 @@ export const LABEL_PX = Math.round(LABEL_DPI * LABEL_IN); // 406
 const PAD = 26; // ~0.13in safe margin on every side
 const FONT = '"Montserrat", "Helvetica Neue", Arial, sans-serif';
 
-/** Printer alignment. The RW403B lands the image a little left of the label
- * (about 0.12in, measured from a test print), so everything is drawn this many
- * printer dots to the right to come out centered. 203 dots = 1 inch.
- * Positive = move right / down. Tweak in steps of 4–6 if a test print is off. */
-export const NUDGE_X = 24;
+/** Default printer alignment. The RW403B lands the image slightly left of the
+ * label; 24 dots over-corrected (printed right), 0 printed left, so the default
+ * sits between. Staff can fine-tune per device on the tag page (saved locally).
+ * 203 dots = 1 inch. Positive = move right / down. */
+export const NUDGE_X = 12;
 export const NUDGE_Y = 0;
 
 /** Type sizes in printer dots (203 per inch). */
@@ -31,8 +31,12 @@ const PRODUCT_PX = 24;
 const PRICE_PX = 34;
 const ID_PX = 17;
 const BAR_HEIGHT = 128;
-/** Weight for the size, product and price values (Montserrat 500 = Medium). */
-const VALUE_WEIGHT = 500;
+/** Weight for the size, product and price values (Montserrat 600 = SemiBold). */
+const VALUE_WEIGHT = 600;
+/** Weight for the small SIZE / PRODUCT / PRICE labels. */
+const KICKER_WEIGHT = 700;
+/** Divider thickness in printer dots (3 ≈ 0.015″) — 2 printed faint. */
+const RULE_PX = 3;
 
 /** Make sure Montserrat is ready before drawing so the canvas doesn't fall back mid-batch. */
 export async function ensureLabelFonts() {
@@ -42,6 +46,7 @@ export async function ensureLabelFonts() {
       document.fonts.load(`700 34px ${FONT}`),
       document.fonts.load(`${VALUE_WEIGHT} 34px ${FONT}`),
       document.fonts.load(`600 15px ${FONT}`),
+      document.fonts.load(`${KICKER_WEIGHT} 13px ${FONT}`),
     ]);
   } catch {
     /* fall back to system sans */
@@ -78,37 +83,53 @@ function fitFont(ctx, text, weight, maxPx, minPx, maxWidth) {
   return text;
 }
 
-function row(ctx, kicker, value, centerY, valuePx) {
+/** Kicker on the left edge, value right-aligned to the right edge. */
+function row(ctx, kicker, value, centerY, valuePx, left, right) {
   ctx.textBaseline = "middle";
-  ctx.font = `600 ${KICKER_PX}px ${FONT}`;
-  const kw = spacedText(ctx, kicker.toUpperCase(), PAD, centerY, 2);
-  const maxW = LABEL_PX - PAD * 2 - kw - 14;
+  ctx.font = `${KICKER_WEIGHT} ${KICKER_PX}px ${FONT}`;
+  const kw = spacedText(ctx, kicker.toUpperCase(), left, centerY, 2);
+  const maxW = right - left - kw - 12;
   const shown = fitFont(ctx, value, VALUE_WEIGHT, valuePx, 16, maxW);
   ctx.textAlign = "right";
-  ctx.fillText(shown, LABEL_PX - PAD, centerY + 1);
+  ctx.fillText(shown, right, centerY + 1);
   ctx.textAlign = "left";
 }
 
-function rule(ctx, y) {
-  ctx.fillRect(PAD, y, LABEL_PX - PAD * 2, 2);
+function rule(ctx, y, left, right) {
+  ctx.fillRect(left, Math.round(y - RULE_PX / 2), right - left, RULE_PX);
 }
 
-/** Bars at a whole number of printer dots per module so every bar is crisp. */
-function drawBarcode(ctx, text, top, height) {
+/** Where the barcode sits: bars at a whole number of printer dots per module
+ * so every bar is crisp, centred on the label. `barLeft`/`barRight` are the
+ * outer edges of the printed bars (quiet zones excluded) — the rows above use
+ * the same edges so the whole block lines up. */
+function barcodeGeometry(text) {
   let layout;
   try {
     layout = code128Layout(text, { maxWidthIn: 10, barHeightIn: 0.5 });
   } catch {
-    return;
+    return null;
   }
   // `modules` already includes the 10-module quiet zone on each side, which is
   // blank, so it may run into the margin.
   const avail = LABEL_PX - 16;
   const dot = Math.max(1, Math.min(3, Math.floor(avail / layout.modules)));
-  const width = layout.modules * dot;
-  const left = Math.round((LABEL_PX - width) / 2);
-  layout.rects.forEach((bar) => {
-    ctx.fillRect(left + bar.x * dot, top, bar.w * dot, height);
+  const left = Math.round((LABEL_PX - layout.modules * dot) / 2);
+  const xs = layout.rects.map((b) => b.x);
+  const ends = layout.rects.map((b) => b.x + b.w);
+  return {
+    layout,
+    dot,
+    left,
+    barLeft: left + Math.min(...xs) * dot,
+    barRight: left + Math.max(...ends) * dot,
+  };
+}
+
+function drawBarcode(ctx, geo, top, height) {
+  if (!geo) return;
+  geo.layout.rects.forEach((bar) => {
+    ctx.fillRect(geo.left + bar.x * geo.dot, top, bar.w * geo.dot, height);
   });
 }
 
@@ -125,8 +146,12 @@ function threshold(ctx) {
 }
 
 /** `nudge: false` draws the label perfectly centred (for on-screen preview and
- * letter sheets); the Munbyn images keep the nudge to offset the printer. */
-export function drawBackLabel(canvas, { size, product, price, itemId }, { nudge = true } = {}) {
+ * letter sheets); the Munbyn images are shifted by `nudgeX` to offset the printer. */
+export function drawBackLabel(
+  canvas,
+  { size, product, price, itemId },
+  { nudge = true, nudgeX = NUDGE_X, nudgeY = NUDGE_Y } = {}
+) {
   canvas.width = LABEL_PX;
   canvas.height = LABEL_PX;
   const ctx = canvas.getContext("2d");
@@ -134,7 +159,7 @@ export function drawBackLabel(canvas, { size, product, price, itemId }, { nudge 
   ctx.fillRect(0, 0, LABEL_PX, LABEL_PX);
   ctx.fillStyle = "#000";
   ctx.save();
-  if (nudge) ctx.translate(NUDGE_X, NUDGE_Y);
+  if (nudge) ctx.translate(nudgeX, nudgeY);
 
   // Stack, top to bottom (offsets from the first row's centre line):
   // three rows 50 dots apart with a rule between each, then the barcode and SKU.
@@ -146,14 +171,19 @@ export function drawBackLabel(canvas, { size, product, price, itemId }, { nudge 
   // Centre the whole stack vertically on the label.
   const y0 = Math.round((LABEL_PX - (bottom - top)) / 2 - top);
 
-  row(ctx, "Size", size, y0, SIZE_PX);
-  rule(ctx, y0 + ROW_GAP / 2);
-  row(ctx, "Product", product, y0 + ROW_GAP, PRODUCT_PX);
-  rule(ctx, y0 + ROW_GAP * 1.5);
-  row(ctx, "Price", price, y0 + ROW_GAP * 2, PRICE_PX);
+  // Rows span exactly the width of the barcode bars.
+  const geo = barcodeGeometry(itemId);
+  const L = geo ? geo.barLeft : PAD;
+  const R = geo ? geo.barRight : LABEL_PX - PAD;
+
+  row(ctx, "Size", size, y0, SIZE_PX, L, R);
+  rule(ctx, y0 + ROW_GAP / 2, L, R);
+  row(ctx, "Product", product, y0 + ROW_GAP, PRODUCT_PX, L, R);
+  rule(ctx, y0 + ROW_GAP * 1.5, L, R);
+  row(ctx, "Price", price, y0 + ROW_GAP * 2, PRICE_PX, L, R);
 
   const barTop = y0 + ROW_GAP * 2 + barGap;
-  drawBarcode(ctx, itemId, barTop, BAR_HEIGHT);
+  drawBarcode(ctx, geo, barTop, BAR_HEIGHT);
 
   ctx.textBaseline = "top";
   ctx.font = `700 ${ID_PX}px ${FONT}`;

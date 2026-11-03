@@ -397,18 +397,6 @@ body {
     break-inside: avoid;
 }
 
-/* Label image preview (same drawing the Munbyn prints), shown at true 2×2 in */
-.ee-back-label-img {
-    display: block;
-    width: 2in;
-    height: 2in;
-    border-radius: 0.1in;
-    background: #fff;
-    image-rendering: pixelated;
-    page-break-inside: avoid;
-    break-inside: avoid;
-}
-
 /* 2×2 in back-of-hangtag labels */
 .ee-label-grid {
     display: flex;
