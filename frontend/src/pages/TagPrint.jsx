@@ -45,6 +45,8 @@ const DEMO_TAGS = [
   },
 ];
 
+/** Screen preview / letter sheet render at 4× the printer resolution (812 dpi). */
+const PREVIEW_SCALE = 4;
 const NUDGE_KEY = "ee_label_nudge_x";
 const NUDGE_STEP = 4; // printer dots ≈ 0.02″
 
@@ -113,7 +115,7 @@ export default function TagPrint() {
         const { product, size } = labelCopy(it);
         const blob = await backLabelBlob(
           { size, product, price: fmtMoney(it.asking_price), itemId: it.item_id },
-          { nudge: false }
+          { nudge: false, scale: PREVIEW_SCALE }
         );
         urls.push(URL.createObjectURL(blob));
       }

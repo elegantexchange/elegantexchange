@@ -392,7 +392,7 @@ body {
     height: 2in;
     border-radius: 0.1in;
     background: #fff;
-    image-rendering: pixelated;
+    image-rendering: auto;
     page-break-inside: avoid;
     break-inside: avoid;
 }

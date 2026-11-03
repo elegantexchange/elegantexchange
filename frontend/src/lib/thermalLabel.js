@@ -150,15 +150,19 @@ function threshold(ctx) {
 export function drawBackLabel(
   canvas,
   { size, product, price, itemId },
-  { nudge = true, nudgeX = NUDGE_X, nudgeY = NUDGE_Y } = {}
+  { nudge = true, nudgeX = NUDGE_X, nudgeY = NUDGE_Y, scale = 1 } = {}
 ) {
-  canvas.width = LABEL_PX;
-  canvas.height = LABEL_PX;
+  // scale 1 = the exact 203 dpi printer image, snapped to pure black/white.
+  // scale > 1 = a high-resolution, smooth-edged copy for the screen preview and
+  // letter sheets (same layout, just more pixels — no black/white snapping).
+  canvas.width = LABEL_PX * scale;
+  canvas.height = LABEL_PX * scale;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, LABEL_PX, LABEL_PX);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#000";
   ctx.save();
+  ctx.scale(scale, scale);
   if (nudge) ctx.translate(nudgeX, nudgeY);
 
   // Stack, top to bottom (offsets from the first row's centre line):
@@ -190,7 +194,7 @@ export function drawBackLabel(
   spacedText(ctx, String(itemId), LABEL_PX / 2, barTop + BAR_HEIGHT + idGap, 2.5, "center");
   ctx.restore();
 
-  threshold(ctx);
+  if (scale === 1) threshold(ctx);
   return canvas;
 }
 
